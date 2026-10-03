@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nanoleaf</title>
+<style>
+:root{
+  --bg:#0b0d14;--panel:#151a26;--line:#262d3d;--text:#eef1f8;--dim:#8f98ad;--accent:#7c5cff;
+  --ok:#3ddc84;--warn:#ffb340;--err:#ff5470;--focus:#ffffff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+  font-family:"Roboto","Noto Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{background:radial-gradient(1200px 600px at 75% -10%,#1d1838 0%,transparent 60%),var(--bg)}
+/* TV-safe area: keep everything inside ~5% of each edge */
+#app{position:absolute;inset:22px 40px 18px 40px;display:flex;flex-direction:column}
+
+/* ---------- hero ---------- */
+#hero{display:flex;gap:20px;height:222px;flex:none}
+#info{flex:1;min-width:0;display:flex;flex-direction:column}
+#brand{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim);letter-spacing:.04em}
+#brand b{color:var(--text);font-weight:600;letter-spacing:.02em}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;background:#ffffff10;font-size:12px;color:var(--dim)}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.pill.ok i{background:var(--ok)}.pill.bad i{background:var(--err)}.pill.warn i{background:var(--warn)}
+#title{font-size:34px;font-weight:700;margin-top:14px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#title .ic{margin-right:10px}
+#desc{font-size:14px;color:var(--dim);margin-top:6px;height:38px;line-height:19px;overflow:hidden}
+#now{font-size:13px;color:var(--dim);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#now b{color:var(--text);font-weight:500}
+#tools{display:flex;gap:10px;margin-top:auto;align-items:center}
+.btn{height:44px;padding:0 14px;border-radius:12px;background:var(--panel);border:2px solid transparent;
+  display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500;color:var(--text);white-space:nowrap;
+  transition:transform .12s,background .12s,border-color .12s}
+.btn .k{font-size:18px;display:flex}
+.btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
+.btn.icon{width:44px;padding:0;justify-content:center}
+.btn.on{background:#2a2350}
+.btn.focus{border-color:var(--focus);background:#2b3246;transform:scale(1.06)}
+#bright{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-left:4px}
+#bar{width:84px;height:8px;border-radius:9px;background:#ffffff18;overflow:hidden}
+#bar i{display:block;height:100%;width:50%;background:linear-gradient(90deg,#ffd27a,#fff3d6);border-radius:9px;transition:width .2s}
+#wallbox{width:340px;height:100%;flex:none;display:flex;align-items:center;justify-content:center;position:relative}
+#wall{display:block;width:100%;height:196px;margin-bottom:18px}
+#wall polygon{stroke:#07080c;stroke-width:5;stroke-linejoin:round;transition:fill .5s linear}
+#wall.fast polygon{transition:fill .22s linear}
+#wall.off polygon{fill:#1a1e29 !important}
+#wallcap{position:absolute;bottom:0;right:4px;font-size:11px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+
+/* ---------- rows ---------- */
+#rowsview{flex:1;overflow:hidden;position:relative;margin-top:12px;
+  -webkit-mask-image:linear-gradient(180deg,#000 85%,transparent)}
+#rows{position:absolute;left:0;right:0;top:0;transition:transform .25s ease-out;will-change:transform}
+.row{height:132px;padding-top:2px}
+.row h2{font-size:15px;font-weight:600;color:var(--dim);margin:0 0 8px 2px;letter-spacing:.02em}
+.row h2 small{font-weight:400;margin-left:8px;opacity:.7}
+.row.cur h2{color:var(--text)}
+.trackview{overflow:visible;position:relative;height:96px}
+.track{display:flex;gap:14px;position:absolute;left:0;top:0;transition:transform .22s ease-out;will-change:transform}
+.card{width:150px;height:92px;border-radius:14px;flex:none;position:relative;overflow:hidden;
+  border:3px solid transparent;background:#222;transition:transform .14s,border-color .14s;transform-origin:center}
+.card .sw{position:absolute;inset:0}
+.card .shade{position:absolute;inset:0;background:linear-gradient(180deg,#0000 30%,#000a)}
+.card .ic{position:absolute;left:10px;top:7px;font-size:24px}
+.card .nm{position:absolute;left:10px;right:8px;bottom:7px;font-size:14px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 3px #000}
+.card .fav{position:absolute;right:8px;top:6px;font-size:15px;color:#ff6b9a;text-shadow:0 1px 3px #000}
+.card .live{position:absolute;right:8px;bottom:9px;width:9px;height:9px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 0 3px #0008}
+.card.focus{border-color:var(--focus);transform:scale(1.08);z-index:2}
+.empty{font-size:14px;color:var(--dim);padding:30px 4px}
+
+#hint{flex:none;font-size:12px;color:var(--dim);display:flex;gap:18px;padding-top:6px}
+#hint span b{color:var(--text);font-weight:500}
+
+/* ---------- toast + modal ---------- */
+#toast{position:absolute;left:50%;bottom:44px;transform:translate(-50%,20px);opacity:0;transition:.25s;
+  background:#222a3b;padding:10px 18px;border-radius:12px;font-size:15px;pointer-events:none;border-left:4px solid var(--accent)}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast.ok{border-color:var(--ok)}#toast.warn{border-color:var(--warn)}#toast.err{border-color:var(--err)}
+#modal{position:absolute;inset:0;background:#05060acc;display:none;align-items:center;justify-content:center}
+#modal.show{display:flex}
+#sheet{width:560px;background:var(--panel);border-radius:20px;padding:26px 28px;border:1px solid var(--line)}
+#sheet h3{font-size:22px}
+#sheet p{color:var(--dim);font-size:15px;margin-top:10px;line-height:1.45}
+#sheet .phase{color:var(--text);margin-top:14px;font-size:16px;min-height:44px}
+#sheet .acts{display:flex;gap:12px;margin-top:20px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hero">
+    <div id="info">
+      <div id="brand"><b>Nanoleaf</b> Shapes <span id="link" class="pill"><i></i><span>Connecting…</span></span></div>
+      <div id="title">Nanoleaf</div>
+      <div id="desc"></div>
+      <div id="now"></div>
+      <div id="tools">
+        <div class="btn" data-act="power"><span class="k"><svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></span><span id="pwr">On / Off</span></div>
+        <div class="btn" data-act="dimmer"><span class="k">−</span>Dim</div>
+        <div class="btn" data-act="brighter"><span class="k">+</span>Bright</div>
+        <div id="bright"><div id="bar"><i></i></div><span id="bval">–</span></div>
+        <div class="btn icon" data-act="connect" style="margin-left:auto"><span class="k"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9"/><path d="M4 12A8 8 0 0 1 18.3 7.1"/><path d="M18.5 3v4.3h-4.3"/><path d="M5.5 21v-4.3h4.3"/></svg></span></div>
+      </div>
+    </div>
+    <div id="wallbox"><svg id="wall"></svg><div id="wallcap"></div></div>
+  </div>
+  <div id="rowsview"><div id="rows"></div></div>
+  <div id="hint">
+    <span><b>OK</b> play</span><span><b>☰</b> add / remove favourite</span>
+    <span><b>⏯</b> lights on / off</span><span><b>⏪ ⏩</b> brightness</span>
+  </div>
+  <div id="toast"></div>
+  <div id="modal"><div id="sheet">
+    <h3>Connection</h3>
+    <p id="mtext"></p>
+    <div class="phase" id="mphase"></div>
+    <div class="acts" id="macts">
+      <div class="btn" data-m="search"><span class="k"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9"/><path d="M4 12A8 8 0 0 1 18.3 7.1"/><path d="M18.5 3v4.3h-4.3"/><path d="M5.5 21v-4.3h4.3"/></svg></span>Search again</div>
+      <div class="btn" data-m="pair"><span class="k">🔗</span>Pair</div>
+      <div class="btn" data-m="close">Close</div>
+    </div>
+  </div></div>
+</div>
+
+<script src="data.js"></script>
+<script>
+"use strict";
+/* ---------------------------------------------------------------
+   Bridge. In the APK, window.NL is Java (MainActivity.Bridge).
+   In a desktop browser a mock stands in so the layout can be checked.
+   --------------------------------------------------------------- */
+const MOCK=!window.NL;
+if(MOCK){
+  const st={state:{on:{value:true},brightness:{value:60},colorMode:"effect"},
+    effects:{select:"Cozy",effectsList:Object.keys(DATA.palettes)},panelLayout:DATA.layout||window.MOCK_LAYOUT};
+  window.NL={write:(k,m,p,b)=>{console.log("WRITE",k,m,p,b.slice(0,120));setTimeout(()=>TV.onWrite(k,204,""),300);},
+    read:(id)=>setTimeout(()=>TV.onRead(id,200,JSON.stringify(st)),50),
+    reconnect:()=>setTimeout(()=>TV.onStatus({phase:"connected",detail:"Mock",ip:"mock"}),500),
+    ip:()=>"mock",paused:()=>false,pref:k=>localStorage.getItem("tv."+k),setPref:(k,v)=>localStorage.setItem("tv."+k,v),exit:()=>{}};
+}
+
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const CTRL=12;
+/* The wall's shape. Baked in when the app was built for one particular wall (build_tv.sh --wall),
+   otherwise read from the panels the first time they answer. */
+let PL=null,LAYOUT=[],LIGHT=[];
+function setLayout(pl){PL=pl;LAYOUT=pl.layout.positionData;LIGHT=LAYOUT.filter(p=>p.shapeType!==CTRL);}
+if(DATA.layout)setLayout(DATA.layout);
+
+/* ---------------- colour helpers (same maths as nanoleaf.html) ---------------- */
+function hsbRgb(h,s,b){s/=100;b/=100;const c=b*s,x=c*(1-Math.abs((h/60)%2-1)),m=b-c;let r,g,bl;
+  if(h<60)[r,g,bl]=[c,x,0];else if(h<120)[r,g,bl]=[x,c,0];else if(h<180)[r,g,bl]=[0,c,x];
+  else if(h<240)[r,g,bl]=[0,x,c];else if(h<300)[r,g,bl]=[x,0,c];else[r,g,bl]=[c,0,x];
+  return[r,g,bl].map(n=>Math.round((n+m)*255));}
+const rgbHex=(r,g,b)=>"#"+[r,g,b].map(n=>n.toString(16).padStart(2,"0")).join("");
+const hsbHex=(h,s,b)=>rgbHex(...hsbRgb(h,s,b));
+const hexRgb=h=>{const n=parseInt(h.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255];};
+const showHsb=(h,s,b)=>hsbHex(h,s,Math.max(40,b));
+function ctHex(ct){const t=Math.max(1200,Math.min(6500,ct||2700)),f=(t-1200)/5300;
+  return rgbHex(255,Math.round(150+90*f),Math.round(70+165*f));}
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+
+/* ---------------- write bodies (same as nanoleaf.html) ---------------- */
+function spread(pal){const out={};LIGHT.forEach((p,i)=>out[p.panelId]=pal[i%pal.length]);return out;}
+function staticBody(map){
+  const parts=[String(LIGHT.length)];
+  LIGHT.forEach(p=>{const[r,g,b]=hexRgb(map[p.panelId]||"#000000");parts.push(`${p.panelId} 1 ${r} ${g} ${b} 0 8`);});
+  return{command:"display",version:"2.0",animType:"static",animData:parts.join(" "),loop:false,palette:[]};
+}
+function animBody(sc){
+  const[a,b]=DATA.speed[sc.speed||"medium"];
+  const body={command:"display",version:"2.0",animType:sc.anim,colorType:"HSB",loop:true,
+    palette:sc.palette.map(([h,s,br])=>({hue:h,saturation:s,brightness:br})),
+    transTime:{minValue:a,maxValue:b},delayTime:{minValue:a,maxValue:b}};
+  if(sc.anim==="flow")body.flowFactor=2.5;
+  return body;
+}
+
+/* ---------------- catalogue: every playable card ---------------- */
+const COLOURS=[
+  {name:"Warm White",ct:2700},{name:"Soft White",ct:3500},{name:"Daylight",ct:5000},
+  {name:"Red",h:0,s:100},{name:"Orange",h:25,s:100},{name:"Amber",h:38,s:100},{name:"Yellow",h:55,s:100},
+  {name:"Green",h:120,s:100},{name:"Teal",h:170,s:100},{name:"Cyan",h:190,s:100},{name:"Blue",h:225,s:100},
+  {name:"Indigo",h:255,s:100},{name:"Purple",h:280,s:100},{name:"Pink",h:320,s:70},{name:"Rose",h:345,s:85},
+];
+function entry(kind,name){   // -> {key,kind,name,icon,cols,desc,still|frames,play()}
+  const key=kind+":"+name;
+  if(kind==="mood"){
+    const m=DATA.moods.find(x=>x.name.toLowerCase()===name.toLowerCase());if(!m)return null;
+    const cols=m.palette.map(c=>showHsb(...c)),still=m.anim==="static";
+    return{key:"mood:"+m.name,kind,name:m.name,icon:m.icon,cols,
+      desc:`${still?"Still":cap(m.anim)+" · "+(m.speed||"medium")} · ${m.palette.length} colours`,
+      shimmer:!still,send:()=>({path:"/effects",body:{write:still?staticBody(spread(cols)):animBody(m)}})};
+  }
+  if(kind==="fx"){
+    const f=DATA.effects.find(x=>x.name.toLowerCase()===name.toLowerCase());if(!f)return null;
+    return{key:"fx:"+f.name,kind,name:f.label,icon:f.icon,cols:f.colors,desc:f.desc,frames:f.preview,
+      send:()=>({path:"/effects",body:{write:f.body}})};
+  }
+  if(kind==="device"){
+    const list=(DEV&&DEV.effects.effectsList)||Object.keys(DATA.palettes);
+    const n=list.find(x=>x.toLowerCase()===name.toLowerCase());if(!n)return null;
+    const p=DATA.palettes[n],cols=p?p.palette.map(c=>showHsb(c.h,c.s,c.b)):["#3a4152","#5a6276"];
+    return{key:"device:"+n,kind,name:n,icon:"🎨",cols,shimmer:!p||p.animType==="plugin",
+      desc:"A scene saved on the wall"+(p&&p.animType!=="plugin"?" · still":""),
+      send:()=>({path:"/effects",body:{select:n}})};
+  }
+  if(kind==="colour"){
+    const c=COLOURS.find(x=>x.name.toLowerCase()===name.toLowerCase());if(!c)return null;
+    const hex=c.ct?ctHex(c.ct):hsbHex(c.h,c.s,100);
+    return{key:"colour:"+c.name,kind,name:c.name,icon:c.ct?"💡":"🎨",cols:[hex],
+      desc:c.ct?`White light · ${c.ct} K`:"One solid colour on every panel",
+      send:()=>({path:"/state",body:c.ct?{on:{value:true},ct:{value:c.ct}}:{on:{value:true},hue:{value:c.h},sat:{value:c.s}}})};
+  }
+  if(kind==="msg"){
+    const m=DATA.messages.find(x=>x.text.toLowerCase()===name.toLowerCase());if(!m)return null;
+    return{key:"msg:"+m.text,kind,name:m.label,icon:"💌",cols:["#ff1a3c","#ff8fb1","#2a0a12"],frames:m.preview,
+      desc:`Spells it on the wall one character at a time · ${m.seconds.toFixed(0)} s loop`,
+      send:()=>({path:"/effects",body:{write:m.body}})};
+  }
+  if(kind==="mine"){
+    const sc=DATA.scenes.find(x=>x.name.toLowerCase()===name.toLowerCase());if(!sc)return null;
+    let cols,body;
+    if(sc.kind==="painted"){cols=[...new Set(Object.values(sc.panels))].slice(0,6);body=staticBody(sc.panels);}
+    else if(sc.kind==="message"){if(!sc.body)return null;cols=[sc.color||"#ff1a3c",sc.bg||"#000000"];body=sc.body;}
+    else{cols=sc.palette.map(c=>showHsb(...c));body=sc.anim==="static"?staticBody(spread(cols)):animBody(sc);}
+    return{key:"mine:"+sc.name,kind,name:sc.name,icon:sc.kind==="painted"?"🖌️":sc.kind==="message"?"💌":"⭐",cols,
+      map:sc.kind==="painted"?sc.panels:null,desc:"One of your saved scenes",shimmer:sc.kind==="custom"&&sc.anim!=="static",
+      send:()=>({path:"/effects",body:{write:body}})};
+  }
+  return null;
+}
+const keyOf=k=>k.toLowerCase();
+function favKeys(){return FAVS.filter((k,i)=>FAVS.findIndex(x=>keyOf(x)===keyOf(k))===i);}
+function isFav(k){return FAVS.some(x=>keyOf(x)===keyOf(k));}
+function parseKey(k){const i=k.indexOf(":");return[k.slice(0,i),k.slice(i+1)];}
+
+function buildRows(){
+  const R=[{id:"tools",items:[]}];   // row 0 = the toolbar in the hero (not drawn in #rows)
+  R.push({id:"favs",title:"Favourites",sub:"☰ on any card adds it here",
+    items:favKeys().map(k=>entry(...parseKey(k))).filter(Boolean)});
+  R.push({id:"moods",title:"Moods",items:DATA.moods.map(m=>entry("mood",m.name))});
+  if(DATA.effects.length)R.push({id:"fx",title:"Effects",items:DATA.effects.map(f=>entry("fx",f.name))});
+  if(DATA.scenes.length)R.push({id:"mine",title:"My scenes",items:DATA.scenes.map(s=>entry("mine",s.name)).filter(Boolean)});
+  const list=(DEV&&DEV.effects.effectsList)||Object.keys(DATA.palettes);
+  R.push({id:"device",title:"Wall scenes",sub:"saved on the controller",items:list.map(n=>entry("device",n)).filter(Boolean)});
+  R.push({id:"colour",title:"Colours",items:COLOURS.map(c=>entry("colour",c.name))});
+  if(DATA.messages.length)R.push({id:"msg",title:"Messages",items:DATA.messages.map(m=>entry("msg",m.text))});
+  return R;
+}
+
+/* ---------------- state ---------------- */
+let DEV=null,ONLINE=null,LINK={phase:"idle",detail:""};
+let FAVS=JSON.parse(NL.pref("favs")||"null")||DATA.favorites||[];
+let LAST=JSON.parse(NL.pref("last")||"null");   // {key,name,at}: the look this TV last sent
+let ROWS=[],fr=1,fc={},modal=false,mfc=0,visibleNow=true,pending=0;
+const isOn=()=>!!(DEV&&DEV.state.on.value);
+const bright=()=>DEV?DEV.state.brightness.value:null;
+
+function activeKey(){
+  if(!DEV)return null;const sel=DEV.effects.select||"",cm=DEV.state.colorMode;
+  if(cm==="hs"||cm==="ct")return LAST&&LAST.key.startsWith("colour:")?LAST.key:null;
+  if(sel&&!sel.startsWith("*"))return"device:"+sel;
+  return LAST&&!LAST.key.startsWith("colour:")&&!LAST.key.startsWith("device:")?LAST.key:null;
+}
+function nowText(){
+  if(!DEV)return ONLINE===false?"Can't reach the panels":"Reading the wall…";
+  if(!isOn())return"The wall is <b>off</b>";
+  const k=activeKey();let n;
+  if(k){const e=entry(...parseKey(k));n=e?e.name:parseKey(k)[1];}
+  else{const sel=DEV.effects.select||"";n=sel.startsWith("*")?"a custom look":sel||"a colour";}
+  return`On the wall now: <b>${esc(n)}</b> · ${bright()}%`;
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------------- wall drawing ---------------- */
+let POLY={};
+function drawWall(){
+  if(!PL)return;
+  const pl=PL,L=LAYOUT,rot=((pl.globalOrientation||{}).value||0)*Math.PI/180;
+  const cx=L.reduce((a,p)=>a+p.x,0)/L.length,cy=L.reduce((a,p)=>a+p.y,0)/L.length,c=Math.cos(rot),s=Math.sin(rot);
+  const tr=(x,y)=>{const dx=x-cx,dy=y-cy;return[cx+dx*c-dy*s,-(cy+dx*s+dy*c)];};
+  const verts=p=>{const out=[];
+    if(p.shapeType===7){for(let k=0;k<6;k++){const a=k*Math.PI/3;out.push([p.x+Math.cos(a)*67,p.y+Math.sin(a)*67]);}}
+    else{for(let k=0;k<3;k++){const a=(90+(p.o||0)+k*120)*Math.PI/180;out.push([p.x+Math.cos(a)*38.7,p.y+Math.sin(a)*38.7]);}}
+    return out.map(v=>tr(...v));};
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,html="";
+  LIGHT.forEach(p=>{const pts=verts(p);pts.forEach(([x,y])=>{x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);});
+    html+=`<polygon data-id="${p.panelId}" points="${pts.map(v=>v.map(n=>n.toFixed(1)).join(",")).join(" ")}"/>`;});
+  const w=$("#wall"),pad=8;
+  w.setAttribute("viewBox",`${x0-pad} ${y0-pad} ${x1-x0+2*pad} ${y1-y0+2*pad}`);
+  w.innerHTML=html;POLY={};$$("#wall polygon").forEach(e=>POLY[e.dataset.id]=e);
+}
+let animT=null,animI=0;
+function stopAnim(){clearTimeout(animT);animT=null;}
+function paint(map){for(const id in POLY)POLY[id].style.fill=map[id]||"#1a1e29";}
+function preview(e){   // show a card's look on the wall drawing
+  stopAnim();const w=$("#wall");w.classList.remove("off","fast");
+  if(!e){w.classList.toggle("off",DEV?!isOn():false);return;}
+  if(e.frames){w.classList.add("fast");animI=0;
+    const step=()=>{if(!visibleNow)return;const[m,t]=e.frames[animI%e.frames.length];paint(m);animI++;animT=setTimeout(step,Math.max(120,t*100));};
+    step();return;}
+  if(e.map){paint(e.map);return;}
+  let off=0;const go=()=>{const out={};LIGHT.forEach((p,i)=>out[p.panelId]=e.cols[(i+off)%e.cols.length]);paint(out);};
+  go();if(e.shimmer&&e.cols.length>1){const tick=()=>{if(!visibleNow)return;off++;go();animT=setTimeout(tick,1600);};animT=setTimeout(tick,1600);}
+}
+function nowLook(){   // the look currently on the wall, for the drawing when the toolbar has focus
+  const k=activeKey();return k?entry(...parseKey(k)):null;
+}
+
+/* ---------------- render ---------------- */
+function cardHtml(e,ri,ci){
+  const g=e.cols.length>1?`linear-gradient(120deg,${e.cols.join(",")})`:e.cols[0];
+  return`<div class="card" data-r="${ri}" data-c="${ci}"><div class="sw" style="background:${g}"></div><div class="shade"></div>`+
+    `<div class="ic">${e.icon}</div>${isFav(e.key)?'<div class="fav">♥</div>':""}<div class="nm">${esc(e.name)}</div></div>`;
+}
+let rowsSig="";
+function renderRows(force){
+  const R=buildRows(),sig=JSON.stringify(R.map(r=>[r.id,r.items.map(e=>e.key)]))+FAVS.join("|");
+  if(!force&&sig===rowsSig){markLive();return;}
+  rowsSig=sig;ROWS=R;
+  $("#rows").innerHTML=R.map((r,ri)=>ri===0?"":`<div class="row" data-row="${ri}"><h2>${r.title}${r.sub?`<small>${r.sub}</small>`:""}</h2>`+
+    `<div class="trackview"><div class="track">${r.items.length?r.items.map((e,ci)=>cardHtml(e,ri,ci)).join(""):
+      `<div class="empty">Nothing here yet.</div>`}</div></div></div>`).join("");
+  markLive();focus(fr,fc[fr]||0,true);
+}
+function markLive(){
+  const k=activeKey();
+  $$(".card .live").forEach(e=>e.remove());
+  if(!k||!isOn())return;
+  ROWS.forEach((r,ri)=>r.items.forEach((e,ci)=>{if(keyOf(e.key)===keyOf(k)){
+    const el=$(`.card[data-r="${ri}"][data-c="${ci}"]`);if(el)el.insertAdjacentHTML("beforeend",'<div class="live"></div>');}}));
+}
+function renderStatus(){
+  const l=$("#link"),t=l.querySelector("span");l.className="pill";
+  if(NL.paused()){l.classList.add("warn");t.textContent="Paused";}
+  else if(ONLINE){l.classList.add("ok");t.textContent="Connected";}
+  else if(ONLINE===false){l.classList.add("bad");t.textContent=LINK.phase==="needs_pairing"?"Needs pairing":"Offline";}
+  else t.textContent="Connecting…";
+  $("#now").innerHTML=nowText();
+  const b=bright();$("#bval").textContent=b==null?"–":b+"%";$("#bar i").style.width=(b||0)+"%";
+  $("#pwr").textContent=DEV?(isOn()?"Turn off":"Turn on"):"On / Off";
+  $('[data-act="power"]').classList.toggle("on",isOn());
+}
+function showInfo(){
+  if(fr===0){
+    const e=nowLook();
+    $("#title").innerHTML=e?`<span class="ic">${e.icon}</span>${esc(e.name)}`:(DEV&&!isOn()?"Lights off":"Nanoleaf");
+    const tip={power:"Turn the wall on or off (or press ⏯ on the remote)",dimmer:"Dimmer by 10% (or ⏪ on the remote)",
+      brighter:"Brighter by 10% (or ⏩ on the remote)",connect:"Connection: find the panels again, or pair with them"}[TOOLS()[fc[0]||0].dataset.act];
+    $("#desc").textContent=tip;$("#wallcap").textContent="on the wall";
+    preview(DEV&&!isOn()?null:e);return;
+  }
+  const e=ROWS[fr]&&ROWS[fr].items[fc[fr]||0];
+  if(!e){$("#title").textContent=ROWS[fr]?ROWS[fr].title:"";$("#desc").textContent="";preview(null);return;}
+  $("#title").innerHTML=`<span class="ic">${e.icon}</span>${esc(e.name)}`;
+  $("#desc").textContent=e.desc+(isFav(e.key)?" · ♥ favourite":"");$("#wallcap").textContent="preview";
+  preview(e);
+}
+
+/* ---------------- focus + navigation ---------------- */
+const TOOLS=()=>$$("#tools .btn");
+function focus(r,c,quiet){
+  r=Math.max(0,Math.min(ROWS.length-1,r));
+  $$(".focus").forEach(e=>e.classList.remove("focus"));
+  $$(".row.cur").forEach(e=>e.classList.remove("cur"));
+  if(r===0){const t=TOOLS();c=Math.max(0,Math.min(t.length-1,c));t[c].classList.add("focus");}
+  else{
+    const n=ROWS[r].items.length;c=n?Math.max(0,Math.min(n-1,c)):0;
+    const row=$(`.row[data-row="${r}"]`);row.classList.add("cur");
+    $("#rows").style.transform=`translateY(${-(row.offsetTop-$(".row[data-row='1']").offsetTop)}px)`;
+    const card=row.querySelector(`.card[data-c="${c}"]`),track=row.querySelector(".track");
+    if(card){card.classList.add("focus");
+      const view=$("#rowsview").clientWidth,max=Math.max(0,track.scrollWidth-view+12);
+      const x=Math.max(0,Math.min(max,card.offsetLeft-170));track.style.transform=`translateX(${-x}px)`;}
+  }
+  const changed=r!==fr||c!==fc[r];fr=r;fc[r]=c;
+  if(changed||!quiet)showInfo();
+  NL.setPref("focus",JSON.stringify({r:fr,c:fc}));
+}
+function move(dr,dc){
+  if(modal){const b=$$("#macts .btn");mfc=Math.max(0,Math.min(b.length-1,mfc+dc));mfocus();return;}
+  if(dr){let r=fr+dr;if(r<0)return;if(r>=ROWS.length)return;focus(r,fc[r]||0);}
+  else focus(fr,(fc[fr]||0)+dc);
+}
+function press(){
+  if(modal){$$("#macts .btn")[mfc].click();return;}
+  if(fr===0){const a=TOOLS()[fc[0]||0].dataset.act;act(a);return;}
+  const e=ROWS[fr].items[fc[fr]||0];if(e)play(e);
+}
+document.addEventListener("keydown",ev=>{
+  const k=ev.key,c=ev.keyCode;
+  if(k==="ArrowUp"||c===38)move(-1,0);
+  else if(k==="ArrowDown"||c===40)move(1,0);
+  else if(k==="ArrowLeft"||c===37)move(0,-1);
+  else if(k==="ArrowRight"||c===39)move(0,1);
+  else if(k==="Enter"||c===13||c===23)press();
+  else if(MOCK&&k==="m")TV.remote("menu");
+  else if(MOCK&&k==="Escape")TV.back();
+  else return;
+  ev.preventDefault();
+});
+$$("#macts .btn").forEach(b=>b.addEventListener("click",()=>{
+  const m=b.dataset.m;if(m==="close")closeModal();else{NL.reconnect(m==="pair");}
+}));
+
+/* ---------------- actions ---------------- */
+let toastT=null;
+function toast(msg,kind,ms){const t=$("#toast");t.textContent=msg;t.className="show "+(kind||"");clearTimeout(toastT);
+  toastT=setTimeout(()=>t.className=kind||"",ms||1800);}
+function put(key,path,body){pending++;NL.write(key,"PUT",path,JSON.stringify(body));}
+function play(e){
+  if(!ONLINE&&ONLINE!==null){toast("Can't reach the panels — check Connection","err",2600);return;}
+  const s=e.send();
+  if(DEV&&!isOn()&&s.path==="/effects")put("power","/state",{on:{value:true}});
+  put("look",s.path,s.body);   // one key for every look: mashing OK only sends the newest
+  LAST={key:e.key,name:e.name,at:Date.now()};NL.setPref("last",JSON.stringify(LAST));
+  if(DEV){DEV.state.on.value=true;if(s.path==="/effects"){DEV.state.colorMode="effect";DEV.effects.select=e.kind==="device"?e.name:"*Dynamic*";}
+    else DEV.state.colorMode=s.body.ct?"ct":"hs";}
+  toast(e.icon+"  "+e.name,"ok");renderStatus();markLive();
+}
+let bt=null;
+function setBright(v){
+  if(!DEV)return;v=Math.max(1,Math.min(100,Math.round(v)));
+  DEV.state.brightness.value=v;renderStatus();
+  clearTimeout(bt);bt=setTimeout(()=>put("bright","/state",{brightness:{value:v}}),250);
+}
+function stepBright(d){if(!DEV)return;const b=bright();setBright(d>0?(b<10?10:b+10):(b<=10?Math.max(1,b-5):b-10));}
+function act(a){
+  if(a==="power"){if(!DEV)return;const on=!isOn();DEV.state.on.value=on;put("power","/state",{on:{value:on}});
+    toast(on?"Lights on":"Lights off");renderStatus();markLive();if(fr===0)showInfo();}
+  else if(a==="dimmer")stepBright(-1);
+  else if(a==="brighter")stepBright(1);
+  else if(a==="connect")openModal();
+}
+function toggleFav(){
+  if(fr===0)return;const e=ROWS[fr].items[fc[fr]||0];if(!e)return;
+  if(isFav(e.key)){FAVS=FAVS.filter(x=>keyOf(x)!==keyOf(e.key));toast("Removed from favourites");}
+  else{FAVS=FAVS.concat(e.key);toast("♥ Added to favourites","ok");}
+  NL.setPref("favs",JSON.stringify(FAVS));
+  if(ROWS[fr].id==="favs")fc[fr]=Math.min(fc[fr]||0,Math.max(0,FAVS.length-1));
+  renderRows(true);
+}
+
+/* ---------------- connection sheet ---------------- */
+const PHASE={idle:"",checking:"Checking…",searching:"Searching the network…",connected:"✅ Connected",
+  not_found:"❌ Couldn't find the panels. Is the controller plugged in and on Wi-Fi?",
+  needs_pairing:"🔒 Found the panels, but they need pairing. Choose Pair, then hold the controller's power button for 5–7 seconds until the lights flash.",
+  pairing:"⏳ Waiting… hold the power button on the controller for 5–7 seconds until the lights flash."};
+function openModal(){modal=true;mfc=0;$("#modal").classList.add("show");renderModal();mfocus();}
+function closeModal(){modal=false;$("#modal").classList.remove("show");$$("#macts .focus").forEach(e=>e.classList.remove("focus"));focus(fr,fc[fr]||0,true);}
+function mfocus(){$$(".focus").forEach(e=>e.classList.remove("focus"));$$("#macts .btn")[mfc].classList.add("focus");}
+function renderModal(){
+  $("#mtext").innerHTML=`Panels: <b>${esc(NL.ip())}</b> · ${ONLINE?"connected":ONLINE===false?"not answering":"checking"}`+
+    (NL.paused()?"<br>Writes are paused for a few seconds after repeated failures, to protect the controller.":"");
+  $("#mphase").textContent=PHASE[LINK.phase]!==undefined?(LINK.phase==="not_found"||LINK.phase==="needs_pairing"?PHASE[LINK.phase]:(PHASE[LINK.phase]||LINK.detail)):LINK.detail;
+}
+
+/* ---------------- device I/O ---------------- */
+let pollT=null;
+function refresh(){NL.read("state","/");}
+function schedule(ms){clearTimeout(pollT);pollT=setTimeout(()=>{if(visibleNow)refresh();schedule(5000);},ms);}
+
+window.TV={
+  onRead(id,status,body){
+    if(id!=="state")return;
+    if(status===200){
+      let d;try{d=JSON.parse(body);}catch(e){return;}
+      const first=!DEV;DEV=d;ONLINE=true;
+      if(!PL&&d.panelLayout&&d.panelLayout.layout){setLayout(d.panelLayout);drawWall();}
+      renderStatus();renderRows(first);if(fr===0)showInfo();
+    }else{
+      ONLINE=false;if(status===401||status===403)LINK={phase:"needs_pairing",detail:""};
+      renderStatus();if(status!==0&&!modal)openModal();else if(status===0)NL.reconnect(false);
+    }
+    if(modal)renderModal();
+  },
+  onWrite(key,status,body){
+    pending=Math.max(0,pending-1);
+    if(status>=200&&status<300){schedule(900);return;}
+    if(status===503)toast("Paused for a moment to protect the controller","warn",3000);
+    else if(status===0){ONLINE=false;toast("Can't reach the panels","err",2600);}
+    else if(status===401||status===403){ONLINE=false;LINK={phase:"needs_pairing",detail:""};openModal();}
+    else toast("The wall said no (error "+status+")","err",3000);
+    renderStatus();schedule(900);
+  },
+  onStatus(s){
+    LINK=s;if(s.phase==="connected"){toast("Connected","ok");refresh();}
+    if((s.phase==="needs_pairing"||s.phase==="not_found")&&!modal)openModal();   // first run: walk the user through pairing
+    if(modal)renderModal();renderStatus();
+  },
+  remote(k){
+    if(k==="power")act("power");else if(k==="dimmer")stepBright(-1);else if(k==="brighter")stepBright(1);
+    else if(k==="menu")toggleFav();
+  },
+  back(){
+    if(modal){closeModal();return true;}
+    if(fr>1){focus(1,fc[1]||0);return true;}
+    return false;
+  },
+  visible(v){visibleNow=v;if(v){refresh();schedule(5000);showInfo();}else{clearTimeout(pollT);stopAnim();}},
+};
+
+/* ---------------- start ---------------- */
+drawWall();
+try{const f=JSON.parse(NL.pref("focus")||"null");if(f){fc=f.c||{};fr=f.r||1;}}catch(e){}
+renderRows(true);renderStatus();
+if(!ROWS[fr]||(fr>0&&!ROWS[fr].items.length&&fr!==1))fr=1;
+focus(fr,fc[fr]||0);
+refresh();schedule(5000);
+</script>
+</body>
+</html>

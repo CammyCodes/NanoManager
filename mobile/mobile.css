@@ -1,0 +1,131 @@
+/* iPhone layout for nanoleaf.html. Loaded after the page's own styles, only in the iOS app. */
+:root{--tabbar:64px;--sat:env(safe-area-inset-top);--sab:env(safe-area-inset-bottom);--sal:env(safe-area-inset-left);--sar:env(safe-area-inset-right)}
+html,body{overscroll-behavior-y:none}
+body{font-size:15px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  padding-bottom:calc(var(--tabbar) + var(--sab) + 12px);touch-action:manipulation;-webkit-text-size-adjust:100%}
+input,textarea,[contenteditable]{-webkit-user-select:text;user-select:text}
+
+/* ---------- header ---------- */
+header{padding:calc(var(--sat) + 8px) calc(16px + var(--sar)) 10px calc(16px + var(--sal));gap:10px;
+  background:rgba(10,12,17,.78);-webkit-backdrop-filter:saturate(1.5) blur(20px);backdrop-filter:saturate(1.5) blur(20px)}
+.logo{width:34px;height:34px;border-radius:9px;background:url(/mobile/icon-small.png) center/cover no-repeat!important;font-size:0;
+  box-shadow:0 2px 10px rgba(0,0,0,.45)}
+.brand h1{font-size:17px;letter-spacing:-.2px}
+.brand .sub{display:block!important;font-size:11.5px;max-width:52vw}
+#refresh{display:none}
+.conn{padding:6px 8px}
+.conn span{display:none}
+.switch{width:58px;height:34px}
+.switch .knob{width:26px;height:26px}
+.switch.on .knob{left:27px}
+
+/* ---------- banners ---------- */
+#connect{padding:12px calc(14px + var(--sar)) 0 calc(14px + var(--sal))}
+.cbox{padding:14px;gap:12px}
+.cbox .btn{flex:1;justify-content:center;padding:12px}
+
+/* ---------- layout ---------- */
+.wrap{padding:12px calc(12px + var(--sar)) 12px calc(12px + var(--sal))!important;gap:12px!important;grid-template-columns:1fr!important}
+.col{gap:12px}
+.card{padding:14px;border-radius:20px}
+.hero{padding:16px 16px 12px}
+/* pale scenes (whites, pastels) wash out the text on a small screen: darken behind it */
+.hero::after{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(10,12,17,.42),rgba(10,12,17,.58))}
+.hero .eyebrow,.hero .meta,.bright .lbl{color:rgba(238,241,247,.72)}
+.hero .presets button{color:rgba(238,241,247,.8);border-color:rgba(255,255,255,.16);background:rgba(0,0,0,.18)}
+.hero .name{font-size:23px;margin:2px 0}
+.hero .meta{font-size:13px}
+.hero .actions{margin-top:12px}
+.hero .actions .btn{flex:1;justify-content:center;padding:11px 12px}
+.bright{margin-top:10px}
+.presets{gap:6px}
+.presets button{padding:7px 12px;font-size:13px;flex:1 0 auto;text-align:center}
+
+/* the wall: compact on most tabs, big while painting */
+.stage-card{padding:10px}
+#stage{aspect-ratio:auto!important;height:min(30vh,230px)!important;transition:height .3s ease}
+html.tab-paint #stage{height:min(52vh,460px)!important;touch-action:none}
+html.tab-paint .stage-card{position:relative;z-index:2}
+.outline.hover{stroke:#06080c;stroke-width:3.5}   /* no sticky hover after a tap */
+.outline.painted{stroke:#fff;stroke-width:2.5}
+.stage-foot{margin-top:8px}
+.stage-foot .hint{min-width:0}
+
+/* ---------- buttons & fields sized for fingers ---------- */
+.btn{padding:11px 15px;font-size:14px;border-radius:12px;min-height:44px}
+.btn.sm{padding:8px 12px;font-size:13px;min-height:36px}
+.btn:hover:not(:disabled){transform:none;background:var(--card2);border-color:var(--line)}
+.btn:active:not(:disabled){transform:scale(.97);filter:brightness(1.15)}
+.btn.primary:hover:not(:disabled){background:linear-gradient(135deg,var(--a1),color-mix(in srgb,var(--a1) 60%,var(--a2)));border-color:transparent}
+html.light-accent .btn.primary{color:#0b0d12}
+html.light-accent .presets button.on{color:#0b0d12}
+.field{font-size:16px;padding:11px 12px;min-height:44px;border-radius:12px;min-width:0}
+select.field{font-size:16px}
+.row{gap:8px}
+.row .field{flex:1 1 100%}
+.row .field+.btn,.row .btn+.btn{flex:1}
+input[type=range]{height:40px}
+input[type=range]::-webkit-slider-thumb{width:28px;height:28px;margin-top:-10px}
+.check{font-size:14px;min-height:36px}
+.check input{width:20px;height:20px}
+.tool .btn{flex:1 1 auto;justify-content:center}
+
+/* ---------- tabs become a bottom tab bar ---------- */
+#tabs.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;margin:0;border:0;border-radius:0;
+  border-top:1px solid var(--line);display:flex;gap:0;overflow:visible;
+  padding:5px calc(6px + var(--sar)) calc(var(--sab) + 3px) calc(6px + var(--sal));
+  background:rgba(12,14,20,.84);-webkit-backdrop-filter:saturate(1.6) blur(22px);backdrop-filter:saturate(1.6) blur(22px)}
+#tabs.tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  padding:5px 0 3px;font-size:10.5px;font-weight:600;border-radius:12px;background:transparent!important;box-shadow:none!important;
+  color:var(--mute);letter-spacing:.1px;min-height:50px}
+#tabs.tabbar button svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
+#tabs.tabbar button.on{color:var(--txt)}
+#tabs.tabbar button.on svg{stroke:color-mix(in srgb,var(--a2) 75%,white);transform:translateY(-1px)}
+#tabs.tabbar button:active svg{transform:scale(.9)}
+.pane{animation:none}
+.pane.on{animation:fade .18s ease}
+.sec{margin-bottom:20px}
+.sec h3{font-size:12px;gap:8px;flex-wrap:wrap}
+.sec h3 .hint{text-transform:none;letter-spacing:0;font-weight:500;font-size:11.5px}
+
+/* ---------- scene cards: two across ---------- */
+.grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px}
+.scene{padding:9px 9px 11px;border-radius:15px;gap:8px}
+.scene .strip{height:52px;border-radius:10px}
+.scene .nm{font-size:13.5px}
+.scene:hover:not(.active){transform:none;box-shadow:none;border-color:var(--line)}
+.scene:active{transform:scale(.97)}
+.scene .fav{width:30px;height:30px;top:13px;right:13px}
+.scene .fav svg{width:16px;height:16px}
+.scene .fav:hover{transform:none;background:rgba(0,0,0,.5)}
+.scene .fav.on:hover{background:rgba(12,8,12,.78)}
+.scene .del{opacity:.92;width:30px;height:30px;border-radius:9px;font-size:15px}
+.scene .fav~.del{top:13px;right:auto;left:13px}
+.scene .del.sure{padding:0 9px;font-size:12px}
+.empty{font-size:13.5px;padding:16px}
+
+/* ---------- colour / paint / message ---------- */
+.swatches{gap:9px}
+.sw{width:38px;height:38px;border-radius:11px}
+.sw:hover{transform:none}
+.sw.active{transform:scale(1.08)}
+.colorbox{width:62px;height:50px}
+.row>.colorbox{align-self:flex-start}
+.colorbox.sm{width:46px;height:36px}
+.cchip{width:42px;height:42px;border-radius:12px}
+.cchip:hover::after{content:none}
+.cchip:not(.add):active::after{content:"×";position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.55);color:#fff;border-radius:10px;font-size:18px}
+.glyphs button{padding:5px 10px;font-size:14px;margin:2px;border-radius:8px}
+#mLetters{display:inline-flex;flex-wrap:wrap;gap:2px;vertical-align:middle}
+.mprev{grid-template-columns:repeat(3,minmax(0,1fr))}
+[data-pane=message] .tool{gap:10px!important}
+[data-pane=message] .tool .check{flex:1 1 40%}
+.kbd{display:none}
+
+/* ---------- toast above the tab bar ---------- */
+#toast{bottom:calc(var(--tabbar) + var(--sab) + 14px);font-size:14px;padding:11px 18px;max-width:calc(100vw - 40px);
+  background:rgba(30,35,46,.94);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+
+/* Home Screen web app (no pull-to-refresh there): keep the refresh button */
+html:not(.ios) #refresh{display:grid}

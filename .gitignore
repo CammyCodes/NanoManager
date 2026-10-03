@@ -1,0 +1,17 @@
+.DS_Store
+# your own data and secrets: never commit these
+token.txt
+device.json
+scenes.json
+favorites.json
+ui_state.json
+palettes.json
+server.log
+# build output
+dist/
+app/build/
+firetv/build/
+firetv/signing/
+__pycache__/
+*.apk
+*.keystore

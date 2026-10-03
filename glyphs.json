@@ -1,0 +1,33 @@
+{
+  "_readme": "Which panels light up for each character, as strokes drawn in order (each stroke is a list of panel ids; the letter builds up stroke by stroke, then holds). Panel ids come from `./nl.py panels`. The wall is one big Y of 9 hexagons, so letters stay small and central to be readable. Edit freely and preview with `./nl.py say --preview out.svg TEXT`.",
+  "glyphs": {
+    "I": [[51229], [32012]],
+    "♥": [[53008, 45921, 13856, 40756], [51229], [32012]],
+    "Y": [[45921], [13856], [51229], [32012]],
+    "O": [[45921], [13856], [32012]],
+    "U": [[53008], [45921], [51229], [13856], [40756]],
+    "V": [[45921], [51229], [13856]],
+    "L": [[53008], [45921], [51229]],
+    "1": [[53008], [45921]],
+    "*": [[53008, 50598, 6925, 45921, 18694, 21587, 13856, 40756, 51229, 32012, 29219, 52676, 13638, 2502, 7957, 16433, 1378, 31100, 52318]]
+  },
+  "aliases": {
+    "<3": "♥",
+    "❤️": "♥",
+    "❤": "♥",
+    "♡": "♥",
+    "❣": "♥",
+    "💖": "♥",
+    "💗": "♥",
+    "💞": "♥",
+    "🧡": "♥",
+    "💛": "♥",
+    "💚": "♥",
+    "💙": "♥",
+    "💜": "♥",
+    "🖤": "♥",
+    "🤍": "♥",
+    "💕": "♥",
+    "💓": "♥"
+  }
+}
