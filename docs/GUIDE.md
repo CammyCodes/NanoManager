@@ -146,7 +146,8 @@ about half a second late. So everything you do on the wall is a swipe.
   Mac app open, or the Windows launcher running). The TV app doesn't have it.
 - Each round is sent to the controller as **one** animation and each correct swipe as one short flash, all through
   the usual rate limit.
-- Swipes less than 0.8 s apart count once, because one movement across the wall can be reported more than once.
+- Swipes less than 0.8 s apart count once: the wall often reports a swipe and then a quick "echo" in the opposite
+  direction, and the echo is ignored. Now and then the wall misses a swipe or misreads it; just swipe again.
 - **Swipes coming out the wrong way round?** The app shows the last swipe it received ("Last swipe: ↑"). If that
   isn't the way you swiped, press **↻ turn them** next to it (each press turns every swipe a quarter turn) until it
   matches. It's remembered (`touch.json` in the data folder).

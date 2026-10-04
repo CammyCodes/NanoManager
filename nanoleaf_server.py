@@ -330,8 +330,11 @@ def device_event_loop():
 # ---------------------------------------------------------------- touch
 # Touch events: {"events":[{"panelId":N,"gesture":G}]}. On this wall (Shapes, FW 7.1.6) only
 # swipes ever arrive (gesture 2-5, panelId -1, ~0.5 s late); taps (0/1, with a panel id) are
-# documented but never sent, and the UDP touch stream stays silent. Taps are still handled in
-# case another firmware sends them. Swipes drive Play Simon and debug mode.
+# documented but never sent, holds send nothing, and the UDP touch stream stays silent. Taps
+# are still handled in case another firmware sends them. Swipes drive Play Simon and debug
+# mode. Directions arrive as seen on the wall (its mounting rotation doesn't apply); the first
+# event of a swipe is the real one and an "echo" in the opposite direction often follows
+# 0.4-0.6 s later, which SWIPE_GAP drops.
 SWIPES = {2: "up", 3: "down", 4: "left", 5: "right"}
 SWIPE_GAP = 0.8         # one movement can report more than once: ignore swipes closer than this
 DEBUG_PATTERN = ["down", "up", "down"]
@@ -345,14 +348,12 @@ _pattern = []
 
 
 def touch_rotation():
-    """Degrees to turn the device's swipe directions by to match the wall as seen: the wall's
-    own orientation unless touch.json says otherwise."""
+    """Degrees to turn the device's swipe directions by. 0: the wall reports them as seen (checked
+    on a wall mounted at 180°); touch.json can turn them if another wall differs."""
     saved = _load_json(TOUCH_FILE, {})
     if isinstance(saved.get("rotate"), (int, float)):
         return saved["rotate"] % 360
-    with _state_lock:
-        st = _state or {}
-    return ((st.get("panelLayout") or {}).get("globalOrientation") or {}).get("value", 0) % 360
+    return 0
 
 
 def touch_status():
@@ -363,11 +364,10 @@ def touch_status():
 
 
 def swipe_dir(raw):
-    """Device-frame direction -> the direction as seen on the wall (same transform as
-    message.wall_shapes: rotate, then flip y)."""
-    vx, vy = {"up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0)}[raw]
+    """Reported direction -> the direction to act on, turned clockwise by touch_rotation()."""
+    vx, vy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[raw]   # screen space, y down
     r = math.radians(touch_rotation())
-    sx, sy = vx * math.cos(r) - vy * math.sin(r), -(vx * math.sin(r) + vy * math.cos(r))
+    sx, sy = vx * math.cos(r) - vy * math.sin(r), vx * math.sin(r) + vy * math.cos(r)
     if abs(sx) > abs(sy):
         return "right" if sx > 0 else "left"
     return "down" if sy > 0 else "up"
@@ -391,11 +391,11 @@ def on_swipe(raw):
     global _touch_at, _last_swipe
     now = time.time()
     if now - _last_swipe < SWIPE_GAP:
-        print(f"[touch] swipe {raw} ignored (too soon after the last one)", flush=True)
+        print(f"[touch] {time.strftime('%H:%M:%S')} swipe {raw} ignored (echo / too soon after the last one)", flush=True)
         return
     _last_swipe = _touch_at = now
     d = swipe_dir(raw)
-    print(f"[touch] swipe {raw} -> {d}", flush=True)
+    print(f"[touch] {time.strftime('%H:%M:%S')} swipe {raw}" + (f" -> {d}" if d != raw else ""), flush=True)
     with _touch_lock:
         _touch.update({"dir": d, "raw": raw, "at": now, "n": _touch["n"] + 1})
     if dbg_active():
@@ -409,6 +409,7 @@ def on_swipe(raw):
         if [x for x, _ in _pattern] == DEBUG_PATTERN and \
                 all(b - a <= DEBUG_GAP for (_, a), (_, b) in zip(_pattern, _pattern[1:])):
             del _pattern[:]
+            print("[debug] pattern down-up-down", flush=True)
             dbg_enter()
         elif sim_active():
             _sim_q.put(("swipe", d))            # waiting/game over: a swipe starts a game
@@ -934,6 +935,14 @@ def dbg_run():
             if lst:
                 path, body, ui = remote.play(lst[index], st, speed)
                 code, _ = write(path, body)
+                if not (200 <= code < 300):         # the controller is sometimes slow to answer: once more
+                    time.sleep(1.5)
+                    code, _ = write(path, body)
+                if not (200 <= code < 300):
+                    # Still nothing: stay in debug mode (its panels stay lit) so it's plain on
+                    # the wall that it didn't take; swiping down again tries again.
+                    print(f"[debug] couldn't play {lst[index]['key']} (HTTP {code}); still in debug mode", flush=True)
+                    continue
                 dbg_leave(ui, f", playing {lst[index]['key']} (HTTP {code})")
                 schedule_refresh(0.5)
             else:
