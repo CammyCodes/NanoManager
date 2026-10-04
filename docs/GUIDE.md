@@ -117,29 +117,74 @@ own **Arcade** section on the Scenes tab and can be favourited like any other ca
 | 🔴 Simon | The wall splits into four dim zones: green, red, blue and yellow. Simon plays a sequence that grows by one every round and the player repeats it a little quicker; after five rounds the zones spin round in a victory lap (about 31 s). |
 | 🏍️ Light Cycles | Tron: a cyan bike and an orange bike start far apart and race over the wall leaving light trails, each steering for open space. The first one boxed in flares and de-rezzes; the winner's trail glows. Three rounds from different starts (about 16 s). |
 
-### 🎮 Play Simon (a real game, played by touching the panels)
+### 🎮 Play Simon (a real game, played by swiping on the panels)
 
 **Play Simon**, the first card under Arcade, is a game you play yourself:
 
 1. The wall splits into four dim colour zones: green, red, blue and yellow (the same zones as the Simon demo).
-2. **Watch:** Simon lights a zone. **Copy it** by touching any panel in that zone.
+   Each zone has a direction, roughly where it sits on the wall. On the wall it was made for: **↑ green, → red,
+   ↓ blue, ← yellow**. The app shows the arrows on its picture of the wall and in a legend.
+2. **Watch:** Simon lights a zone. **Copy it** by swiping on the wall in that zone's direction (anywhere on the
+   wall: a short, quick swipe across two panels works best).
 3. Every round Simon replays the whole sequence plus **one new random colour**, and it speeds up as it gets longer.
-4. It goes on until you slip: touch the wrong zone, or wait more than 8 seconds. The whole wall then **flashes red** three
-   times and lights the zone you should have touched. Beat your best and it celebrates with a flash in all four colours.
-5. The dim board stays up afterwards: **touch any panel to play again**, so you don't need the phone or computer in your hand.
+4. It goes on until you slip: a wrong direction, or more than 8 seconds without a swipe. The whole wall then
+   **flashes red** three times and lights the zone you should have picked. Beat your best and it celebrates with a
+   flash in all four colours.
+5. The dim board stays up afterwards: **swipe on the wall to play again**, so you don't need the phone or computer
+   in your hand.
 
 While a game is on, the Now Playing card shows your **Score** (rounds completed) and your **Best**, which is saved
 (`games.json` in the data folder) and kept across restarts and updates. The Arcade heading shows your best too.
-You can also play on the wall preview in the app (or on your phone): click or tap the zones there. **↻ New game**
-starts again from round 1, and picking any other scene ends the game.
+You can also play in the app (or on your phone): click or tap the zones on the wall picture. **↻ New game** starts
+again from round 1, and picking any other scene ends the game.
 
-- Taps reach NanoManager from the panels' own touch sensors over your Wi-Fi, so the computer running NanoManager
-  must be on (the Mac app open, or the Windows launcher running). The TV app doesn't have it.
-- Each round is sent to the controller as **one** animation and each correct touch as one short flash, all through the
-  usual rate limit. If you touch faster than the controller can be updated, every touch still counts; only the flashes
-  for the in-between ones are skipped.
-- If touching a panel also changes the scene or brightness, those are the wall's own *touch actions* set in the
-  Nanoleaf app. NanoManager puts the game board straight back, but turning those actions off makes it smoother.
+**Why swipes and not taps?** The panels' local API never reports taps, holds or which panel was touched. That was
+checked on a Shapes wall on firmware 7.1.6, and other people report the same. It only reports swipe *directions*,
+about half a second late. So everything you do on the wall is a swipe.
+
+- Swipes reach NanoManager from the panels over your Wi-Fi, so the computer running NanoManager must be on (the
+  Mac app open, or the Windows launcher running). The TV app doesn't have it.
+- Each round is sent to the controller as **one** animation and each correct swipe as one short flash, all through
+  the usual rate limit.
+- Swipes less than 0.8 s apart count once, because one movement across the wall can be reported more than once.
+- **Swipes coming out the wrong way round?** The app shows the last swipe it received ("Last swipe: ↑"). If that
+  isn't the way you swiped, press **↻ turn them** next to it (each press turns every swipe a quarter turn) until it
+  matches. It's remembered (`touch.json` in the data folder).
+- If swiping also changes the scene or brightness, those are the wall's own *touch actions* set in the Nanoleaf app.
+  NanoManager puts the game board straight back, but turning those actions off in the Nanoleaf app makes it smoother.
+
+### 🛠 Debug mode (a remote control on the wall)
+
+Step through your scenes from the wall itself, without the app:
+
+| On the wall | What it does |
+|---|---|
+| **Swipe down, up, down** (each within 8 s of the last) | Debug mode on: whatever was playing stops |
+| **Swipe right / left** | Next / previous scene |
+| **Swipe up** | Switch between your **Favourites** (the default) and **All** scenes |
+| **Swipe down** | Debug mode off: the scene you're on keeps playing normally, on the whole wall |
+
+While debug mode is on, four panels at the bottom of the wall stay lit whatever scene is showing, as a reminder:
+
+- the little triangle beside the lowest hexagon (white): debug mode is on;
+- that hexagon: **red** while you're stepping through Favourites, **green** for All;
+- the two triangles under it (blue): previous and next.
+
+It starts on the scene that was playing, if it's in the list, or else the first one. With no favourites yet it
+starts on All. Play Simon and Replicate are left out of the list.
+
+The panels' own scenes and the moving moods are drawn by the controller across *every* panel, so they can't keep the
+four lit panels on top of them. In debug mode they show as an animation of their colours. When you switch debug
+mode off, the real scene plays.
+
+The app shows debug mode on its Now Playing card ("Favourites · 2 of 6 · 🐍 Snake") with **◀ Previous**,
+**Next ▶**, **♥ Favourites / ✱ All** and **✓ Done** buttons that do the same as the swipes. Picking any scene in the
+app (or the Nanoleaf app) also ends debug mode. The down-up-down pattern isn't recognised while Play Simon is
+waiting for your move, because those swipes are game moves. If the panels are switched off, debug mode ends
+(and NanoManager never switches them back on by itself).
+
+On another wall the four panels are picked automatically: the lowest-left panel that sticks out, the panel next to
+it, and the two panels nearest that one.
 
 ### 🖥️ Replicate (your screen's mood on the wall)
 
@@ -266,7 +311,7 @@ curl -X PUT http://127.0.0.1:8765/api/message -d '{"text":"YOU","preview":true}'
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | the control page |
-| GET | `/api/state` | snapshot: `online`, `paused`, `pausedFor`, `lastError`, `device` (the device's full `GET /`), `deviceIp`, `reconnect`, `ui` (what the page last wrote), `favorites`, `replicate` (`active`, `capturing`, `error`, `writes`), `simon` (Play Simon: `active`, `phase`, `score`, `best`, `round`, `step`, zones and board colours) |
+| GET | `/api/state` | snapshot: `online`, `paused`, `pausedFor`, `lastError`, `device` (the device's full `GET /`), `deviceIp`, `reconnect`, `ui` (what the page last wrote), `favorites`, `replicate` (`active`, `capturing`, `error`, `writes`), `simon` (Play Simon: `active`, `phase`, `score`, `best`, `round`, `step`, zones, directions and board colours), `debug` (debug mode: `active`, `list`, `index`, `count`, `key`, `label`, `panels`), `touch` (last swipe: `dir`, `at`, `n`, `rotate`) |
 | GET | `/api/events` | server-sent events: the same snapshot on connect and after every change |
 | GET | `/api/health` | fresh check: `online`, `paused`, `pausedFor`, `lastError` |
 | GET | `/api/palettes` | colours + motion type of the 16 device scenes (cached in `palettes.json`) |
@@ -280,6 +325,8 @@ curl -X PUT http://127.0.0.1:8765/api/message -d '{"text":"YOU","preview":true}'
 | PUT | `/api/state` | passed to the device's `/state` |
 | PUT | `/api/effect` | passed to the device's `/effects` |
 | PUT | `/api/fx` | play an effect: `{"name":"snake"}`; add `"preview":true` to get its frames without sending. `{"name":"replicate"}` starts Replicate, `{"name":"simon_play"}` starts a game of Simon |
+| PUT | `/api/debug` | debug mode: `{"action":"enter"}`, then `prev`, `next`, `toggle` (Favourites/All), `exit` (play the scene for real); answers the status (also in every snapshot as `debug`) |
+| PUT | `/api/touch` | `{"rotate":90}` turns every swipe by that many degrees (`null` = follow the wall's orientation); the last swipe is in every snapshot as `touch` |
 | PUT | `/api/simon` | Play Simon: `{"tap":51229}` touches a panel (as if on the wall), `{"action":"new"}` starts a new game; answers the game status (also in every snapshot as `simon`: `phase`, `score`, `best`, `round`, `step`, …) |
 | GET | `/api/replicate` | Replicate status plus the thumbnail size the Mac app should capture (`w`, `h`) |
 | PUT | `/api/replicate/frame` | from the Mac app: `{"w","h","px"}` (px = hex RGB, 6 characters a pixel); answers `{"active":…}` |
@@ -424,12 +471,13 @@ pkill -9 NanoManager
 | `effects.py` | Snake, Starlight, Ripple, Rain, Wave... and the Arcade games, built from your wall's layout |
 | `replicate.py` | Screen-mood mapping for Replicate (the capture itself is in the Mac app) |
 | `simon.py` | Play Simon: the game's rules and the animations it sends (the server runs it) |
+| `remote.py` | Debug mode: which scenes to step through, how each is shown with the four lit panels, and how it's played for real |
 | `app/` | The Mac app (Swift) and its build script |
 | `windows/` | The Windows launcher and zip builder |
 | `firetv/` | The Fire TV / Android TV app and its build script |
 | `scripts/` | One-line installers |
 
-Your own data (never committed): `token.txt`/`device.json` (pairing), `scenes.json`, `favorites.json`, `games.json` (Simon high score),
+Your own data (never committed): `token.txt`/`device.json` (pairing), `scenes.json`, `favorites.json`, `games.json` (Simon high score), `touch.json` (swipe direction fix-up),
 `ui_state.json`, `palettes.json`, `server.log`. The Mac app keeps them in
 `~/Library/Application Support/NanoManager`, the Windows launcher in `%APPDATA%\NanoManager`, and
 running from source keeps them next to the script (or wherever `NANOLEAF_DATA_DIR` points).

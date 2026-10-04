@@ -30,7 +30,7 @@ cp Info.plist "$BUNDLE/Contents/"
 echo -n "APPL????" > "$BUNDLE/Contents/PkgInfo"
 
 echo "• bundling the server (the app runs this copy; rebuild after editing the repo)"
-FILES="nanoleaf_server.py nanoleaf.html message.py effects.py replicate.py simon.py glyphs.json nl.py"
+FILES="nanoleaf_server.py nanoleaf.html message.py effects.py replicate.py simon.py remote.py glyphs.json nl.py"
 # For yourself the app is seeded with your pairing + saved scenes; a release carries none of that.
 [ "$MODE" = "--release" ] || FILES="$FILES token.txt palettes.json scenes.json ui_state.json"
 for f in $FILES; do

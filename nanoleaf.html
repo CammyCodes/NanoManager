@@ -116,6 +116,13 @@
   .hero .score .pop b{animation:pop .45s ease}
   .hero .score .btn{align-self:center}
   #stage.simon .shape{cursor:pointer}
+  .hero .legend{margin-top:10px;font-size:12.5px;color:var(--dim);display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center}
+  .hero .legend b{color:var(--txt);font-size:15px}
+  .hero .legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+  .hero .legend button{background:none;border:0;color:var(--dim);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+  .hero .score.dbg .btn{align-self:auto}
+  #svg .zarrow{fill:#fff;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none;opacity:.85;
+    paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:6px}
 
   .btn{appearance:none;border:1px solid var(--line);background:var(--card2);color:var(--txt);padding:9px 14px;border-radius:var(--rs);font-size:13px;font-weight:550;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:7px;line-height:1.2}
   .btn:hover:not(:disabled){border-color:var(--line2);background:rgba(255,255,255,.09);transform:translateY(-1px)}
@@ -297,6 +304,14 @@
         <div id="simBestBox"><span>Best</span><b id="simBest">0</b></div>
         <button class="btn" id="simNew" title="Start again from round 1">↻ New game</button>
       </div>
+      <div class="legend" id="simLegend" hidden></div>
+      <div class="score dbg" id="dbgBox" hidden>
+        <button class="btn" id="dbgPrev" title="Previous scene (swipe left on the wall)">◀ Previous</button>
+        <button class="btn" id="dbgNext" title="Next scene (swipe right on the wall)">Next ▶</button>
+        <button class="btn" id="dbgList" title="Switch between your favourites and every scene (swipe up on the wall)">♥ Favourites</button>
+        <button class="btn" id="dbgExit" title="Leave debug mode, keep this scene playing (swipe down on the wall)">✓ Done</button>
+      </div>
+      <div class="legend" id="touchRow" hidden></div>
       <div class="actions">
         <button class="btn" id="playBtn" title="Play the scene's animation">▶ Play</button>
         <button class="btn" id="freezeBtn" title="Hold the scene's colours still">⏸ Freeze</button>
@@ -347,7 +362,7 @@
           <div class="grid" id="fxScenes"></div>
         </div>
         <div class="sec">
-          <h3>Arcade <span class="hint">retro games on the wall · <b>Play Simon</b> is a real game you play by touching the panels</span> <span class="badge" id="simonBestHint"></span></h3>
+          <h3>Arcade <span class="hint">retro games on the wall · <b>Play Simon</b> is a real game you play by swiping on the panels</span> <span class="badge" id="simonBestHint"></span></h3>
           <div class="grid" id="gameScenes"></div>
         </div>
         <div class="sec">
@@ -537,7 +552,11 @@ let GLYPHS={glyphs:{},aliases:{}};
 let FX=[];                         // built-in animated effects, from /api/effects
 let REP={active:false,capturing:false,error:""};
 let SIM={active:false,phase:"idle",score:0,best:0,board:{},zones:{},colours:{}};   // Play Simon, from the server
-let simLit=null,simTimers=[],simSeen=null,simShown={score:0,best:0};   // Replicate status from the server (the Mac app does the capturing)
+let simLit=null,simTimers=[],simSeen=null,simShown={score:0,best:0};
+let DBG={active:false,list:"favourites",index:0,count:0,label:"",icon:"",panels:{}};   // debug mode (wall remote)
+let TOUCH={n:0,dir:null,rotate:0},touchSeen=null;
+const ARROW={up:"↑",right:"→",down:"↓",left:"←"};
+const ZONE_NAME={"#00dc28":"green","#ff1414":"red","#1e46ff":"blue","#ffc800":"yellow"};   // Replicate status from the server (the Mac app does the capturing)
 let FAVS=[];                       // hearted scenes as "kind:name" keys (device/fx/mood/mine), kept by the server
 let favPop=null;                   // the heart just clicked, so it pops once
 const HEART_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.6-4.7-9.4-9.3C1.3 7.6 3.3 4.2 6.9 4.2c2.1 0 3.7 1.2 5.1 3 1.4-1.8 3-3 5.1-3 3.6 0 5.6 3.4 4.3 6.8-1.8 4.6-9.4 9.3-9.4 9.3z"/></svg>';
@@ -614,6 +633,42 @@ function simSync(){               // play whatever the wall just started, once
   }
   if(fl&&fl.id!==simSeen.flash){simSeen.flash=fl.id;if(SIM.phase!=="over")simPlay([[fl.zone,300]]);}
 }
+function debugActive(){return !!(D&&UI.fx&&UI.fx.name==="debug_mode"&&DBG.active);}
+function debugNote(){
+  const list=DBG.list==="all"?"All scenes":"Favourites";
+  return `${list} · ${DBG.count?DBG.index+1:0} of ${DBG.count} · ${DBG.icon||""} ${DBG.label||"—"}. On the wall: swipe ← → to change, ↑ Favourites/All, ↓ when you're done.`;
+}
+function debugAct(action){
+  fetch("/api/debug",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({action})}).catch(()=>{});
+}
+function renderTouch(){   // legend for Simon, last swipe, and the "turn swipes" fix-up
+  const sim=simonActive(),dbg=debugActive();
+  const lg=$("#simLegend");lg.hidden=!sim||!Object.keys(SIM.dirs||{}).length;
+  if(!lg.hidden){
+    const order=["up","right","down","left"],byDir={};Object.entries(SIM.dirs).forEach(([z,d])=>byDir[d]=z);
+    lg.innerHTML="Swipe towards a colour: "+order.filter(d=>byDir[d]!==undefined).map(d=>{const c=SIM.colours[byDir[d]];
+      return `<span><b>${ARROW[d]}</b> <span class="dot" style="background:${c}"></span>${ZONE_NAME[c]||""}</span>`;}).join("");
+  }
+  const tr=$("#touchRow");tr.hidden=!sim&&!dbg;
+  if(!tr.hidden)tr.innerHTML=(TOUCH.dir&&Date.now()/1000-TOUCH.at<60?`Last swipe: <b>${ARROW[TOUCH.dir]}</b> · `:"")+
+    `Swipes coming out turned? <button id="rotSwipe" title="Turn every swipe a quarter turn clockwise">↻ turn them</button>`;
+  const rb=$("#rotSwipe");if(rb)rb.onclick=()=>{fetch("/api/touch",{method:"PUT",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({rotate:((TOUCH.rotate||0)+90)%360})}).then(()=>toast("Swipes turned a quarter turn","ok",1400)).catch(()=>{});};
+  $("#dbgBox").hidden=!dbg;
+  if(dbg)$("#dbgList").textContent=DBG.list==="all"?"✱ All scenes":"♥ Favourites";
+}
+function simArrows(){     // an arrow on each Simon zone: which way to swipe for it
+  const svg=$("#svg");let g=svg.querySelector("#zarrows");
+  if(!simonActive()||!Object.keys(SIM.dirs||{}).length){if(g)g.remove();return;}
+  if(!g){g=document.createElementNS("http://www.w3.org/2000/svg","g");g.id="zarrows";svg.appendChild(g);}
+  const sig=JSON.stringify(SIM.dirs)+svg.dataset.flip;if(g.dataset.sig===sig)return;g.dataset.sig=sig;g.innerHTML="";
+  Object.entries(SIM.dirs).forEach(([z,d])=>{
+    let sx=0,sy=0,n=0;Object.entries(SIM.zones).forEach(([pid,zz])=>{if(String(zz)!==z||!shapeEls[pid])return;
+      const b=shapeEls[pid].getBBox();sx+=b.x+b.width/2;sy+=b.y+b.height/2;n++;});
+    if(!n)return;const t=document.createElementNS("http://www.w3.org/2000/svg","text");
+    t.setAttribute("x",sx/n);t.setAttribute("y",sy/n);t.setAttribute("class","zarrow");t.setAttribute("font-size","64");
+    t.textContent=ARROW[d];g.appendChild(t);});
+}
 function simTap(pid){
   const z=SIM.zones[String(pid)];if(z===undefined)return;
   if(SIM.phase==="input")simPlay([[z,250]]);
@@ -621,16 +676,16 @@ function simTap(pid){
 }
 function simNote(){
   const p=SIM.phase;
-  if(p==="waiting")return "Touch any panel on the wall (or tap one here) to start.";
+  if(p==="waiting")return "Swipe on the wall (or tap a zone here) to start.";
   if(p==="ready")return "Get ready…";
   if(p==="show")return `Round ${SIM.round}: watch the wall…`;
-  if(p==="input")return `Your turn: touch the zones in the same order · ${SIM.step} of ${SIM.round}`;
+  if(p==="input")return `Your turn: swipe towards the colours in the same order · ${SIM.step} of ${SIM.round}`;
   if(p==="good")return "Yes! One more…";
-  if(p==="over")return (SIM.newBest?"New high score! ":"Game over. ")+"Touch the wall or press New game to play again.";
+  if(p==="over")return (SIM.newBest?"New high score! ":"Game over. ")+"Swipe on the wall or press New game to play again.";
   return "";
 }
 function renderSimon(){
-  const on=simonActive(),box=$("#simBox");box.hidden=!on;$("#hero .actions").hidden=on;
+  const on=simonActive(),box=$("#simBox");box.hidden=!on;$("#hero .actions").hidden=on||debugActive();
   $("#stage").classList.toggle("simon",on);
   const bh=$("#simonBestHint");if(bh)bh.textContent=SIM.best?"🎮 Simon best: "+SIM.best:"";
   if(!on)return;
@@ -659,6 +714,7 @@ function displayName(){
   if(sc)return sc.name;
   if(repActive())return curFx().icon+" "+curFx().label;
   if(simonActive())return "🎮 Simon";
+  if(debugActive())return "🛠 Debug mode";
   if(sel==="*Static*")return Object.keys(UI.panels||{}).length?"Your painting":"Still scene";
   if(sel==="*Dynamic*"&&UI.fx)return curFx().icon+" "+curFx().label;
   if(sel==="*Dynamic*")return UI.message&&UI.message.text?"“"+UI.message.text+"”":"Custom animation";
@@ -667,12 +723,12 @@ function displayName(){
 function isAnimated(){
   if(!D||!isOn()||D.state.colorMode!=="effect")return false;
   const sel=curSel();
-  if(sel==="*Dynamic*"||repActive()||simonActive())return true;
+  if(sel==="*Dynamic*"||repActive()||simonActive()||debugActive())return true;
   if(sel==="*Static*")return false;
   const p=PALETTES[sel];return !p||p.animType==="plugin";
 }
 function canPlay(){const sc=curScene();if(sc)return sc.anim!=="static"&&sc.kind!=="painted"&&sc.kind!=="message";return !!D&&!curSel().startsWith("*");}
-function canFreeze(){return curPalette().length>0&&D&&D.state.colorMode==="effect"&&!(curSel()==="*Static*")&&!msgActive()&&!simonActive();}
+function canFreeze(){return curPalette().length>0&&D&&D.state.colorMode==="effect"&&!(curSel()==="*Static*")&&!msgActive()&&!simonActive()&&!debugActive();}
 // palette of whatever is showing, as hex colours
 function curPalette(){
   if(!D)return[];
@@ -695,6 +751,7 @@ function curPalette(){
 }
 function panelColor(p,idx,withPaint=true){
   if(simonActive()){const c=simColour(String(p.panelId));if(c)return c;}
+  if(debugActive()&&DBG.panels[p.panelId])return DBG.panels[p.panelId];
   if(withPaint&&paint[p.panelId])return paint[p.panelId];
   if(msgActive()&&MSG.frames.length){const m=MSG.frames[(MSG.i+MSG.frames.length-1)%MSG.frames.length][0];if(m[p.panelId])return m[p.panelId];}
   if(!D)return "#232833";
@@ -952,7 +1009,7 @@ function playMessage(sc){   // sc: {name,text,color,heart,bg,hold} — a saved s
   UI={sceneName:sc.name||null,panels:{},message:opts};paint={};render();
   send("effect","/api/message",opts,{msg:"Saying “"+opts.text+"”"});
 }
-function msgActive(){return !!(D&&isOn()&&D.state.colorMode==="effect"&&curSel()==="*Dynamic*"&&!repActive()&&!simonActive()&&(UI.fx||(UI.message&&UI.message.text)));}
+function msgActive(){return !!(D&&isOn()&&D.state.colorMode==="effect"&&curSel()==="*Dynamic*"&&!repActive()&&!simonActive()&&!debugActive()&&(UI.fx||(UI.message&&UI.message.text)));}
 async function fxBuild(name){
   const r=await fetch("/api/fx",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,preview:true})});
   const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||("HTTP "+r.status));return d;
@@ -990,7 +1047,7 @@ function renderGlyphs(){
 /* =================================================================
    rendering
    ================================================================= */
-function render(){renderHeader();renderHero();renderSimon();renderStage();renderScenes();renderColour();updatePaintTools();shimmer();renderMessage();syncMsgAnim();}
+function render(){renderHeader();renderHero();renderSimon();renderTouch();renderStage();simArrows();renderScenes();renderColour();updatePaintTools();shimmer();renderMessage();syncMsgAnim();}
 function renderHeader(){
   $("#devsub").textContent=D?`${D.name} · ${lightPanels().length} panels · ${D.firmwareVersion}`:"—";
   $("#power").classList.toggle("on",isOn());$("#power").setAttribute("aria-checked",isOn());
@@ -1012,7 +1069,7 @@ function renderHero(){
     D.state.colorMode==="hs"?`Hue ${D.state.hue.value}° · saturation ${D.state.sat.value}%`:
     D.state.colorMode==="ct"?`${D.state.ct.value}K colour temperature`:
     sc?(sc.kind==="painted"?"Your saved painting":sc.kind==="message"?"Spelled out one character at a time":`${sc.anim==="static"?"Still":cap(sc.anim)+" · "+(sc.speed||"medium")} · ${sc.palette.length} colours`):
-    repActive()?repNote():simonActive()?simNote():
+    repActive()?repNote():simonActive()?simNote():debugActive()?debugNote():
     curSel()==="*Static*"?"Held still on the panels":curSel()==="*Dynamic*"?(UI.fx?curFx().desc:UI.message?"Spelled out one character at a time":"Animated effect"):"Scene saved on the device";
   $("#playBtn").disabled=!D||!canPlay()||isAnimated();
   $("#freezeBtn").disabled=!D||!canFreeze();
@@ -1063,7 +1120,8 @@ function renderStage(){
   const n=Object.keys(paint).length;
   $("#stageHint").innerHTML=tab==="paint"?(n?`<b>${n}</b> panel${n>1?"s":""} edited${$("#live").checked?" · sending live":" · press <b>Send to panels</b>"}`:"Click a panel to colour it with the brush."):
     (D&&curSel()==="*Static*"&&!Object.keys(UI.panels||{}).length&&!curScene())?"The panels are showing something set elsewhere, so the colours here are a guess. Pick a scene to sync up.":
-    simonActive()?"Simon: touch the colour zones on the wall, or tap them here.":
+    simonActive()?"Simon: swipe on the wall towards each colour (the arrows), or tap the zones here.":
+    debugActive()?"Debug mode: the four lit panels at the bottom are the remote. Swipe on the wall, or use the buttons above.":
     "This is your wall. Open <b>Paint</b> to colour panels one by one.";
 }
 function sceneCard(sc,{active,onDelete,fav}={}){
@@ -1204,6 +1262,9 @@ function applySnapshot(s){
   if(Array.isArray(s.favorites))FAVS=s.favorites;
   if(s.replicate)REP=s.replicate;
   if(s.simon)SIM=s.simon;
+  if(s.debug)DBG=s.debug;
+  if(s.touch){if(touchSeen!==null&&s.touch.n!==touchSeen&&s.touch.dir)toast("Swipe "+ARROW[s.touch.dir]+" received","ok",1100);
+    touchSeen=s.touch.n;TOUCH=s.touch;}
   const ph=$("#phoneHint");   // how to reach this page from a phone (desktop only)
   if(ph&&!window.NANO_WEB&&!window.NANO_IOS&&s.phoneUrl){
     ph.style.display="";ph.innerHTML='📱 On your phone (same Wi-Fi), open <b>'+esc(s.phoneUrl)+'</b>, then <b>Share → Add to Home Screen</b> (iPhone) or <b>⋮ → Add to Home screen</b> (Android).';
@@ -1262,6 +1323,8 @@ $("#power").onkeydown=e=>{if(e.key===" "||e.key==="Enter"){e.preventDefault();to
 $("#refresh").onclick=()=>{getState();toast("Refreshed","ok",900);};
 $("#flip").onclick=()=>{flip=!flip;localStorage.setItem("nl.flip",flip?"1":"0");renderStage();};
 $("#playBtn").onclick=playNow;$("#freezeBtn").onclick=freezeNow;
+$("#dbgPrev").onclick=()=>debugAct("prev");$("#dbgNext").onclick=()=>debugAct("next");
+$("#dbgList").onclick=()=>debugAct("toggle");$("#dbgExit").onclick=()=>debugAct("exit");
 $("#simNew").onclick=()=>{fetch("/api/simon",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"new"})}).catch(()=>{});toast("New game","ok",900);};
 const br=$("#bright");
 br.oninput=e=>setBright(e.target.value);

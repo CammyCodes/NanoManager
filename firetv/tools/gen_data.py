@@ -27,7 +27,6 @@ Runs on /usr/bin/python3 (3.9). Usage: gen_data.py [--wall] <outdir>
 """
 import json
 import os
-import re
 import sys
 import urllib.request
 
@@ -35,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 NL = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, NL)
 import effects   # noqa: E402
+import remote    # noqa: E402
 import message   # noqa: E402
 
 APP_DATA = os.path.expanduser("~/Library/Application Support/NanoManager")
@@ -80,19 +80,8 @@ def device_state(cfg):
 
 
 def presets():
-    """PRESETS from nanoleaf.html, converted from JS object literals to JSON."""
-    src = open(os.path.join(NL, "nanoleaf.html"), encoding="utf-8").read()
-    m = re.search(r"const PRESETS=\[(.*?)\n\];", src, re.S)
-    out = []
-    for line in m.group(1).strip().splitlines():
-        line = line.strip().rstrip(",")
-        if not line.startswith("{"):
-            continue
-        js = re.sub(r"([{,])(\w+):", r'\1"\2":', line)
-        out.append(json.loads(js))
-    speed = re.search(r"const SPEED=(\{.*?\});", src).group(1)
-    speed = json.loads(re.sub(r"(\w+):", r'"\1":', speed))
-    return out, speed
+    """PRESETS and SPEED from nanoleaf.html (the parser is shared with the Mac app's debug mode)."""
+    return remote.load_presets(open(os.path.join(NL, "nanoleaf.html"), encoding="utf-8").read())
 
 
 def hexmap(cmap):

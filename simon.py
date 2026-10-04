@@ -3,14 +3,16 @@
 
 The wall is split into the same four colour zones as the Simon demo (effects.simon_zones).
 Each round adds one random zone and the whole sequence is shown as ONE play-once custom
-animation that ends on the dim board, so a round costs a single write. A correct tap is
-answered with one short flash; a wrong tap (or no tap for INPUT_TIMEOUT) ends the game
-with the whole wall flashing red, then the zone that was wanted.
+animation that ends on the dim board, so a round costs a single write. Each zone has a
+swipe direction (the panels only report swipes, never taps or which panel); a correct move
+(a swipe that way, or a tap on the zone in the app) is answered with one short flash; a
+wrong one (or nothing for INPUT_TIMEOUT) ends the game with the whole wall flashing red,
+then the zone that was wanted.
 
-nanoleaf_server.py runs the game loop (timing, writes through the rate limiter, touch
-events from the device) and keeps the best score in games.json.
+nanoleaf_server.py runs the game loop (timing, writes through the rate limiter, swipes
+from the device's touch events) and keeps the best score in games.json.
 """
-import random
+import itertools, math, random
 import effects
 from effects import OFF, WHITE, dim, events_to_frames
 
@@ -37,6 +39,27 @@ class Board:
         shapes = effects.light_shapes(layout_json)
         self.zone, self.colour, self.order = effects.simon_zones(shapes, effects.adjacency(shapes))
         self.ids = sorted(self.zone)
+        self.direction = self._directions({p["panelId"]: effects.centre(pts) for p, pts in shapes})
+        self.by_direction = {d: z for z, d in self.direction.items()}
+
+    def _directions(self, pos):
+        """{zone: "up"|"right"|"down"|"left"}: the wall only reports swipe directions, so each
+        zone is pressed by swiping towards where it sits (best match over all assignments)."""
+        cx = sum(x for x, _ in pos.values()) / len(pos); cy = sum(y for _, y in pos.values()) / len(pos)
+        vec = {}
+        for z in self.colour:
+            m = [pos[p] for p in self.ids if self.zone[p] == z]
+            dx = sum(x for x, _ in m) / len(m) - cx; dy = sum(y for _, y in m) / len(m) - cy
+            n = math.hypot(dx, dy) or 1.0
+            vec[z] = (dx / n, dy / n)
+        dirs = {"up": (0, -1), "right": (1, 0), "down": (0, 1), "left": (-1, 0)}   # screen space, y down
+        zones = list(self.colour)
+        best = max(itertools.permutations(dirs, len(zones)),
+                   key=lambda ds: sum(vec[z][0] * dirs[d][0] + vec[z][1] * dirs[d][1] for z, d in zip(zones, ds)))
+        return dict(zip(zones, best))
+
+    def zone_for(self, direction):
+        return self.by_direction.get(direction)
 
     def zone_of(self, pid):
         try:

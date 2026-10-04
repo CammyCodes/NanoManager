@@ -3,8 +3,9 @@
 **Control your Nanoleaf light panels from your Mac, your Windows PC, your phone and your Fire TV, all locally, with no cloud and no account.**
 
 Moods, animated effects (Snake, Starlight, Ripple, Rain...), retro arcade games played on the wall (Pac-Man, Tetris,
-Pong, Simon, Light Cycles), a game of **Simon you actually play by touching the panels**, colours, painting individual
-panels, and a wall that copies your Mac's screen. Everything talks straight to the panels over your home Wi-Fi.
+Pong, Simon, Light Cycles), a game of **Simon you actually play by swiping on the panels**, a swipe-controlled remote
+for flicking through your favourites on the wall, colours, painting individual panels, and a wall that copies your
+Mac's screen. Everything talks straight to the panels over your home Wi-Fi.
 
 | | Download | One-line install |
 |---|---|---|
@@ -194,7 +195,8 @@ STEPS
 | Favourites (♡ on any card) | ✅ | ✅ | ✅ | ✅ |
 | Animated **effects** (Snake, Starlight, Fairy Dust, Ripple, Rain, Wave) | ✅ | ✅ | ➖ | ✅ |
 | **Arcade** games the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles) | ✅ | ✅ | ➖ | ✅ |
-| 🎮 **Play Simon**: touch the panels to play, with your score and high score in the app | ✅ | ✅ | ❌ | ✅ |
+| 🎮 **Play Simon**: swipe on the panels to play, with your score and high score in the app | ✅ | ✅ | ❌ | ✅ |
+| 🛠 **Debug mode**: swipe down-up-down on the wall, then left/right through your favourites | ✅ | ✅ | ❌ | ✅ |
 | **Paint** panels one by one, make and save your own scenes | ✅ | ✅ | ➖ | ✅ |
 | **Replicate**: the wall copies your Mac's screen | ✅ | ❌ | ❌ | ➖ start it from the phone |
 | Spell short messages like "I ❤ YOU" (only on the wall it was drawn for) | ✅ | ✅ | ➖ | ✅ |
@@ -234,7 +236,9 @@ Everything is local. NanoManager never contacts Nanoleaf's cloud and sends nothi
 | Windows: the phone can't open the address | Start **NanoManager (phone access)** and allow it through the firewall on **Private networks**. |
 | TV app won't install | Turn on *Install unknown apps* for **Downloader** (or ADB debugging for the adb route). |
 | TV app says *Offline* | Press the **⟳ Connection** button and choose **Search again**. |
-| Play Simon: touching a panel also changes the scene or brightness | That's the wall's own *touch actions*. NanoManager puts the game back, but it's smoother with them off: in the Nanoleaf app, set your panels' touch actions to *none*. Leave touch itself switched on, or the game can't feel your taps. |
+| Tapping the panels does nothing in Play Simon | The panels only report **swipes** to apps like this one (never taps or which panel), so swipe instead. See [Play Simon](docs/GUIDE.md#-play-simon-a-real-game-played-by-swiping-on-the-panels). |
+| Swipes come out the wrong way round | While Play Simon or debug mode is on, the app shows the last swipe it got. Press **↻ turn them** next to it until it matches. |
+| Swiping also changes the scene or brightness | That's the wall's own *touch actions*. NanoManager puts its game/remote back, but it's smoother with them off: in the Nanoleaf app, set your panels' touch actions to *none* (leave touch itself on). |
 
 Still stuck? [Open an issue](https://github.com/CammyCodes/NanoManager/issues) and say which device you're using. Never paste your token.
 

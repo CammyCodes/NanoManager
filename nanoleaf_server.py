@@ -25,12 +25,13 @@ Reconnecting: once the panels have been found (or re-paired) their address and t
 are remembered in device.json in the data folder, which then takes precedence over
 NANOLEAF_IP / token.txt. See reconnect_job() for how a lost device is found again.
 """
-import json, os, queue, socket, threading, time, urllib.request, urllib.error
+import json, math, os, queue, socket, threading, time, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 import message                      # spelling messages one character at a time
 import effects                      # Snake, Starlight, Ripple… built as custom animations
 import replicate                    # Replicate: the wall mirrors the Mac's screen
-import simon                        # Play Simon: a real game, played by touching the panels
+import simon                        # Play Simon: a real game, played by swiping on the panels
+import remote                       # Debug mode: step through scenes by swiping on the wall
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -238,6 +239,8 @@ def snapshot():
         "favorites": favs_list(),
         "replicate": rep_status(),
         "simon": sim_status(),
+        "debug": dbg_status(),
+        "touch": touch_status(),
         "phoneUrl": phone_url(),
         "glyphsOk": message.fits(st) if st else None,     # False: messages can't be spelled on this layout
     }
@@ -274,10 +277,10 @@ def refresh_state():
     # A device-saved scene or a plain colour is showing: whatever custom scene the
     # page last wrote is gone, so stop claiming it.
     if (sel and not sel.startswith("*")) or mode in ("hs", "ct"):
-        if sim_active() and time.time() - _sim_touch_at < 4:
-            # The tap that was a Simon move also fired the wall's own touch action (set in
-            # the Nanoleaf app) and changed the scene: put the game board back instead.
-            _sim_q.put(("resync", None))
+        if (sim_active() or dbg_active()) and time.time() - _touch_at < 4:
+            # The swipe that was a Simon move / debug-mode button also fired the wall's own
+            # touch action (set in the Nanoleaf app) and changed the scene: put ours back.
+            (_sim_q if sim_active() else _dbg_q).put(("resync", None))
             broadcast_state()
             return True
         with _ui_lock:
@@ -324,17 +327,92 @@ def device_event_loop():
         time.sleep(5)
 
 
+# ---------------------------------------------------------------- touch
+# Touch events: {"events":[{"panelId":N,"gesture":G}]}. On this wall (Shapes, FW 7.1.6) only
+# swipes ever arrive (gesture 2-5, panelId -1, ~0.5 s late); taps (0/1, with a panel id) are
+# documented but never sent, and the UDP touch stream stays silent. Taps are still handled in
+# case another firmware sends them. Swipes drive Play Simon and debug mode.
+SWIPES = {2: "up", 3: "down", 4: "left", 5: "right"}
+SWIPE_GAP = 0.8         # one movement can report more than once: ignore swipes closer than this
+DEBUG_PATTERN = ["down", "up", "down"]
+DEBUG_GAP = 8.0         # seconds allowed between the swipes of the pattern
+TOUCH_FILE = os.path.join(DATA, "touch.json")       # {"rotate": degrees} if swipes come out turned
+_touch = {"dir": None, "raw": None, "at": 0.0, "n": 0}
+_touch_lock = threading.Lock()
+_touch_at = 0.0
+_last_swipe = 0.0
+_pattern = []
+
+
+def touch_rotation():
+    """Degrees to turn the device's swipe directions by to match the wall as seen: the wall's
+    own orientation unless touch.json says otherwise."""
+    saved = _load_json(TOUCH_FILE, {})
+    if isinstance(saved.get("rotate"), (int, float)):
+        return saved["rotate"] % 360
+    with _state_lock:
+        st = _state or {}
+    return ((st.get("panelLayout") or {}).get("globalOrientation") or {}).get("value", 0) % 360
+
+
+def touch_status():
+    with _touch_lock:
+        out = dict(_touch)
+    out["rotate"] = touch_rotation()
+    return out
+
+
+def swipe_dir(raw):
+    """Device-frame direction -> the direction as seen on the wall (same transform as
+    message.wall_shapes: rotate, then flip y)."""
+    vx, vy = {"up": (0, 1), "down": (0, -1), "left": (-1, 0), "right": (1, 0)}[raw]
+    r = math.radians(touch_rotation())
+    sx, sy = vx * math.cos(r) - vy * math.sin(r), -(vx * math.sin(r) + vy * math.cos(r))
+    if abs(sx) > abs(sy):
+        return "right" if sx > 0 else "left"
+    return "down" if sy > 0 else "up"
+
+
 def on_touch(data):
-    """Touch events: {"events":[{"panelId":123,"gesture":0}]}. 0 = tap, 1 = double tap."""
     try:
         events = json.loads(data).get("events") or []
     except (ValueError, AttributeError):
         return
     for e in events:
         pid, gesture = e.get("panelId"), e.get("gesture")
-        if gesture in (0, 1) and isinstance(pid, int) and pid >= 0:
+        if gesture in SWIPES:
+            on_swipe(SWIPES[gesture])
+        elif gesture in (0, 1) and isinstance(pid, int) and pid >= 0:
             for _ in range(2 if gesture == 1 else 1):
                 sim_tap(pid, wall=True)
+
+
+def on_swipe(raw):
+    global _touch_at, _last_swipe
+    now = time.time()
+    if now - _last_swipe < SWIPE_GAP:
+        print(f"[touch] swipe {raw} ignored (too soon after the last one)", flush=True)
+        return
+    _last_swipe = _touch_at = now
+    d = swipe_dir(raw)
+    print(f"[touch] swipe {raw} -> {d}", flush=True)
+    with _touch_lock:
+        _touch.update({"dir": d, "raw": raw, "at": now, "n": _touch["n"] + 1})
+    if dbg_active():
+        _dbg_q.put({"left": ("step", -1), "right": ("step", 1), "up": ("toggle", None), "down": ("exit", None)}[d])
+    elif sim_active() and sim_phase() == "input":
+        del _pattern[:]                         # the game has the wall: no debug pattern mid-sequence
+        _sim_q.put(("swipe", d))
+    else:
+        _pattern.append((d, now))
+        del _pattern[:-len(DEBUG_PATTERN)]
+        if [x for x, _ in _pattern] == DEBUG_PATTERN and \
+                all(b - a <= DEBUG_GAP for (_, a), (_, b) in zip(_pattern, _pattern[1:])):
+            del _pattern[:]
+            dbg_enter()
+        elif sim_active():
+            _sim_q.put(("swipe", d))            # waiting/game over: a swipe starts a game
+    broadcast_state()
 
 
 def poll_loop():
@@ -451,16 +529,15 @@ def rep_run():
 # the newest gets its flash, but every tap still counts. The best score is in games.json.
 SIMON_NAME = "simon_play"
 SIMON_CARD = {"name": SIMON_NAME, "label": "Play Simon", "icon": "🎮", "group": "game", "play": True,
-              "desc": "A real game: watch the colours, then touch the same zones on the wall (or tap them here). "
-                      "One more every round, until you slip.",
+              "desc": "A real game: watch the colours, then swipe towards the same zones on the wall (or tap them "
+                      "here). One more every round, until you slip.",
               "colors": ["#00dc28", "#ff1414", "#1e46ff", "#ffc800"]}
 GAMES_FILE = os.path.join(DATA, "games.json")
 _sim = {"phase": "idle", "score": 0, "best": 0, "round": 0, "step": 0, "newBest": False,
-        "board": {}, "zones": {}, "colours": {}, "show": None, "flash": None, "over": None, "id": 0}
+        "board": {}, "zones": {}, "colours": {}, "dirs": {}, "show": None, "flash": None, "over": None, "id": 0}
 _sim_lock = threading.Lock()
 _sim_q = queue.Queue()
 _sim_thread = None
-_sim_touch_at = 0.0
 
 
 def sim_active():
@@ -485,12 +562,17 @@ def sim_status():
 _sim["best"] = sim_best()
 
 
+def sim_phase():
+    with _sim_lock:
+        return _sim["phase"]
+
+
 def sim_tap(pid, wall=False):
-    global _sim_touch_at
+    global _touch_at
     if not sim_active():
         return False
     if wall:
-        _sim_touch_at = time.time()
+        _touch_at = time.time()
     _sim_q.put(("tap", pid))
     return True
 
@@ -538,6 +620,9 @@ def sim_run(play):
     if not st:
         time.sleep(1)
         return
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        sim_stop()                              # panels are off: never switch them on by ourselves
+        return
     board = simon.Board(st)
     best = sim_best()
 
@@ -564,7 +649,8 @@ def sim_run(play):
 
     status(phase="waiting", score=0, best=best, round=0, step=0, newBest=False, show=None, flash=None, over=None,
            board=board.hexes(), zones={str(p): z for p, z in board.zone.items()},
-           colours={str(z): "#%02x%02x%02x" % c for z, c in board.colour.items()})
+           colours={str(z): "#%02x%02x%02x" % c for z, c in board.colour.items()},
+           dirs={str(z): d for z, d in board.direction.items()})
     send(board.idle_body())
     game, over_at = simon.Game(board.order), 0.0
     nxt, action = (time.time() + 1.2, "round") if play else (None, None)
@@ -608,14 +694,14 @@ def sim_run(play):
             new_game()
         elif kind == "resync":
             send(board.idle_body(fade=2))
-        elif kind == "tap":
-            z = board.zone_of(arg)
+        elif kind in ("tap", "swipe"):
+            z = board.zone_of(arg) if kind == "tap" else board.zone_for(arg)
             if z is None:
                 continue
             with _sim_lock:
                 phase = _sim["phase"]
             if phase in ("over", "waiting"):
-                if now - over_at > 1.5:         # tap the wall to play (again)
+                if now - over_at > 1.5:         # swipe on the wall to play (again)
                     new_game()
                 continue
             if phase != "input":
@@ -652,6 +738,209 @@ def sim_run(play):
             elif action == "timeout":
                 game.time_out()
                 game_over()
+
+
+# ---------------------------------------------------------------- debug mode
+# Swipe down, up, down on the wall (or PUT /api/debug {"action":"enter"}): whatever is playing
+# stops and the wall becomes a remote. Left/right step through the favourites (or every scene),
+# up switches Favourites/All, down leaves debug mode with the chosen scene playing for real.
+# _ui.fx = {name: "debug_mode", list, key} while it's on. Each scene is shown as one custom
+# animation with the four button panels lit (remote.preview); one worker writes them, and a
+# burst of swipes is summed into a single write.
+DEBUG_NAME = "debug_mode"
+_dbg = {"list": "favourites", "index": 0, "count": 0, "key": None, "label": "", "icon": "", "panels": {},
+        "buttons": {}}
+_dbg_lock = threading.Lock()
+_dbg_q = queue.Queue()
+_dbg_thread = None
+_presets = None
+
+
+def presets():
+    """PRESETS/SPEED from the page (read once)."""
+    global _presets
+    if _presets is None:
+        try:
+            with open(os.path.join(HERE, "nanoleaf.html"), encoding="utf-8") as f:
+                _presets = remote.load_presets(f.read())
+        except OSError:
+            _presets = ([], {"medium": [14, 28]})
+    return _presets
+
+
+def dbg_active():
+    with _ui_lock:
+        fx = _ui.get("fx") or {}
+    return fx.get("name") == DEBUG_NAME
+
+
+def dbg_status():
+    with _dbg_lock:
+        out = dict(_dbg)
+    out["active"] = dbg_active()
+    if not out["active"]:
+        out.update({"panels": {}, "count": 0})
+    return out
+
+
+def dbg_enter():
+    """Switch debug mode on (from the swipe pattern or the page)."""
+    with _state_lock:
+        st = _state
+    if not st:
+        return False
+    with _ui_lock:
+        already = (_ui.get("fx") or {}).get("name") == DEBUG_NAME
+        if not already:
+            start_key = remote.current_key(st, _ui, presets()[0], scenes_list())
+            _ui.update({"fx": {"name": DEBUG_NAME, "list": "favourites", "key": start_key}})
+            _save_json(UI_FILE, _ui)
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        write("/state", {"on": {"value": True}})    # the user asked for it at the wall
+        with _state_lock:
+            if _state:
+                _state["state"]["on"]["value"] = True
+    print("[debug] on", flush=True)
+    dbg_start()
+    return True
+
+
+def dbg_start():
+    global _dbg_thread
+    with _dbg_lock:
+        if _dbg_thread is None:
+            while not _dbg_q.empty():
+                _dbg_q.get_nowait()
+            _dbg_thread = threading.Thread(target=dbg_loop, daemon=True)
+            _dbg_thread.start()
+            return
+    _dbg_q.put(("resync", None))
+
+
+def dbg_loop():
+    global _dbg_thread
+    while True:
+        try:
+            dbg_run()
+        except Exception as e:
+            print(f"[debug] {type(e).__name__}: {e}", flush=True)
+            time.sleep(2)
+        with _dbg_lock:
+            if not dbg_active():
+                _dbg["panels"] = {}
+                _dbg_thread = None
+                return
+
+
+def dbg_leave(ui=None, why=""):
+    """Debug mode off. ui: the _ui of the scene now playing (None = just forget debug mode)."""
+    with _ui_lock:
+        if (_ui.get("fx") or {}).get("name") == DEBUG_NAME:
+            _ui.update(ui or {"sceneName": None, "panels": {}, "message": None, "fx": None})
+            _save_json(UI_FILE, _ui)
+    print(f"[debug] off{why}", flush=True)
+    broadcast_state()
+
+
+def dbg_run():
+    with _state_lock:
+        st = _state
+    if not st:
+        time.sleep(1)
+        return
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        dbg_leave(why=" (panels are off)")      # never switch them on by ourselves
+        return
+    pre, speed = presets()
+    try:
+        with open(os.path.join(DATA, "palettes.json")) as f:
+            palettes = json.load(f)
+    except (OSError, ValueError):
+        palettes = {}
+    with _ui_lock:
+        fx = dict(_ui.get("fx") or {})
+    which, key = fx.get("list") or "favourites", fx.get("key")
+
+    def items(w):
+        return remote.entries(st, pre, scenes_list(), favs_list(), w)
+
+    lst = items(which)
+    if not lst and which == "favourites":
+        which, lst = "all", items("all")
+    keys = [e["key"].lower() for e in lst]
+    index = keys.index(key.lower()) if key and key.lower() in keys else 0
+
+    def show():
+        if not lst or not dbg_active():
+            return
+        e = lst[index]
+        body, first = remote.preview(e, st, speed, palettes, which)
+        with _dbg_lock:
+            _dbg.update({"list": which, "index": index, "count": len(lst), "key": e["key"], "label": e["label"],
+                         "icon": e["icon"], "panels": first,
+                         "buttons": {r: str(p) for r, p in remote.buttons(st).items()}})
+        with _ui_lock:
+            if (_ui.get("fx") or {}).get("name") == DEBUG_NAME:
+                _ui["fx"].update({"list": which, "key": e["key"]})
+                _ui["sceneName"] = None
+                _save_json(UI_FILE, _ui)
+        broadcast_state()
+        code, _ = write("/effects", {"write": body})
+        if 200 <= code < 300:
+            with _state_lock:
+                if _state:
+                    _state["effects"]["select"] = "*Dynamic*"
+                    _state["state"]["colorMode"] = "effect"
+
+    show()
+    while dbg_active():
+        with _state_lock:
+            on = ((_state or {}).get("state") or {}).get("on", {}).get("value", True)
+        if not on:
+            dbg_leave(why=" (panels switched off)")
+            return
+        try:
+            kind, arg = _dbg_q.get(timeout=1.0)
+        except queue.Empty:
+            continue
+        step, toggles, leave, resync = 0, 0, False, False
+        while True:                             # sum up everything that queued while we were writing
+            if kind == "step":
+                step += arg
+            elif kind == "toggle":
+                toggles += 1
+            elif kind == "exit":
+                leave = True
+            elif kind == "resync":
+                resync = True
+            try:
+                kind, arg = _dbg_q.get_nowait()
+            except queue.Empty:
+                break
+        if not dbg_active():
+            return
+        if toggles % 2:
+            cur = lst[index]["key"].lower() if lst else None
+            which = "all" if which == "favourites" else "favourites"
+            lst = items(which)
+            if not lst:                         # no favourites yet: stay on All
+                which, lst = "all", items("all")
+            keys = [e["key"].lower() for e in lst]
+            index = keys.index(cur) if cur in keys else 0
+            print(f"[debug] list: {which}", flush=True)
+        if step and lst:
+            index = (index + step) % len(lst)
+        if leave:
+            if lst:
+                path, body, ui = remote.play(lst[index], st, speed)
+                code, _ = write(path, body)
+                dbg_leave(ui, f", playing {lst[index]['key']} (HTTP {code})")
+                schedule_refresh(0.5)
+            else:
+                dbg_leave()
+            return
+        if step or toggles % 2 or resync:
+            show()
 
 
 # ---------------------------------------------------------------- reconnect
@@ -1060,6 +1349,26 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/fx":
             self._fx(payload)
             return
+        if path == "/api/debug":                    # {"action": "enter|prev|next|toggle|exit"}
+            a = (payload if isinstance(payload, dict) else {}).get("action")
+            if a == "enter":
+                dbg_enter()
+            elif dbg_active() and a in ("prev", "next", "toggle", "exit"):
+                _dbg_q.put({"prev": ("step", -1), "next": ("step", 1), "toggle": ("toggle", None),
+                            "exit": ("exit", None)}[a])
+            self._send(200, json.dumps(dbg_status()))
+            return
+        if path == "/api/touch":                    # {"rotate": degrees} if swipes come out turned
+            p = payload if isinstance(payload, dict) else {}
+            data = _load_json(TOUCH_FILE, {})
+            if p.get("rotate") is None:
+                data.pop("rotate", None)
+            else:
+                data["rotate"] = int(p["rotate"]) % 360
+            _save_json(TOUCH_FILE, data)
+            broadcast_state()
+            self._send(200, json.dumps(touch_status()))
+            return
         if path == "/api/simon":                    # {"tap": panelId} from the page, or {"action": "new"}
             p = payload if isinstance(payload, dict) else {}
             if p.get("action") == "new" and not sim_active():
@@ -1268,7 +1577,9 @@ if __name__ == "__main__":
     if rep_active():
         rep_start()
     if sim_active():
-        sim_start(play=False)       # board back up; tap the wall to play
+        sim_start(play=False)       # board back up (unless the panels are off); swipe to play
+    if dbg_active():
+        dbg_start()                 # back on the scene it was showing (unless the panels are off)
     srv = Server(LISTEN, H)
     try:
         srv.serve_forever()
