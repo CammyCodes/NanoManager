@@ -2,8 +2,8 @@
 
 **Control your Nanoleaf light panels from your Mac, your Windows PC, your phone and your Fire TV, all locally, with no cloud and no account.**
 
-Moods, animated effects (Snake, Starlight, Ripple, Rain...), colours, painting individual panels, and a wall that
-copies your Mac's screen. Everything talks straight to the panels over your home Wi-Fi.
+Moods, animated effects (Snake, Starlight, Ripple, Rain...), retro arcade games played on the wall (Pac-Man, Tetris,
+Pong, Simon, Light Cycles), colours, painting individual panels, and a wall that copies your Mac's screen. Everything talks straight to the panels over your home Wi-Fi.
 
 | | Download | One-line install |
 |---|---|---|
@@ -192,6 +192,7 @@ STEPS
 | The panels' own scenes, played or frozen | ✅ | ✅ | ✅ | ✅ |
 | Favourites (♡ on any card) | ✅ | ✅ | ✅ | ✅ |
 | Animated **effects** (Snake, Starlight, Fairy Dust, Ripple, Rain, Wave) | ✅ | ✅ | ➖ | ✅ |
+| **Arcade** games the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles) | ✅ | ✅ | ➖ | ✅ |
 | **Paint** panels one by one, make and save your own scenes | ✅ | ✅ | ➖ | ✅ |
 | **Replicate**: the wall copies your Mac's screen | ✅ | ❌ | ❌ | ➖ start it from the phone |
 | Spell short messages like "I ❤ YOU" (only on the wall it was drawn for) | ✅ | ✅ | ➖ | ✅ |

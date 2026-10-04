@@ -16,7 +16,7 @@ change a feature.**
 |---|---|
 | `nanoleaf_server.py` | HTTP server on `127.0.0.1:8765`: serves the page, proxies to the device through the rate limiter, follows the device SSE stream, pushes snapshots to pages, saves scenes, reconnects and re-pairs |
 | `nanoleaf.html` | The whole UI. Tabs: Scenes / Custom / Colour / Paint / Message. Moods are the `PRESETS` array; speeds are `SPEED` |
-| `effects.py` | Per-panel keyframe animations (`EFFECTS` registry), served by `/api/effects` and `/api/fx` |
+| `effects.py` | Per-panel keyframe animations (`EFFECTS` registry), served by `/api/effects` and `/api/fx`. Entries with `group:"game"` (Pac-Man, Tetris, Pong, Simon, Light Cycles) show under **Arcade** on the Scenes tab and the TV |
 | `replicate.py` | Replicate: screen thumbnail grid → per-panel "mood" colours (`regions`, `mood`, `Mapper`, `changed`, `static_body`). No device I/O |
 | `message.py` | Text → one looping `custom` animation from `glyphs.json`; also `wall_shapes()` geometry and `preview_svg()` |
 | `glyphs.json` | `glyphs` (char → list of strokes → panel ids) and `aliases` (`<3`, heart emoji → `♥`) |
@@ -57,7 +57,7 @@ change a feature.**
 - The device never reports per-panel colours or a custom effect's name, which is why the `_ui` mechanism exists.
 - `GET /events?id=1,3` SSE works. `id: 3` events carry `{"attr":1,"value":"<effect>"}`.
 - Legacy dynamic `animType`s `flow` (+`flowFactor`), `wheel`, `random`, `fade`, `highlight` take `colorType:"HSB"`, `palette:[{hue,saturation,brightness}]`, `transTime`/`delayTime` as `{minValue,maxValue}` in tenths.
-- `custom` animData: `"<n> <panelId> <nFrames> R G B W T …"`, T in tenths, `loop:true`. A 310-keyframe / 4.3 KB payload was confirmed accepted (204). Current sizes: snake 54 s / 1245 frames / 16.5 KB, starlight 310 / 4.4 KB, fairydust 315 / 4.5 KB, ripple 303 / 4.0 KB, ripple_in 299 / 4.0 KB, wave 228 / 3.4 KB, rain 114 / 1.8 KB, heartbeat 43 / 0.8 KB. The 16 KB Snake was confirmed accepted on 2026-10-03 (played from the Fire TV app). If effects start failing with HTTP 400 or the controller gets flaky, suspect payload size.
+- `custom` animData: `"<n> <panelId> <nFrames> R G B W T …"`, T in tenths, `loop:true`. A 310-keyframe / 4.3 KB payload was confirmed accepted (204). Current sizes: snake 54 s / 1245 frames / 16.5 KB, starlight 310 / 4.4 KB, fairydust 315 / 4.5 KB, ripple 303 / 4.0 KB, ripple_in 299 / 4.0 KB, wave 228 / 3.4 KB, rain 114 / 1.8 KB, heartbeat 43 / 0.8 KB; arcade (1.1): pacman 15 s / 261 / 3.5 KB, tetris 26 s / 321 / 4.1 KB, pong 27 s / 434 / 5.5 KB, simon 31 s / 739 / 9.7 KB, cycles 16 s / 350 / 4.9 KB (all smaller than Snake; not yet played on the wall when written). The 16 KB Snake was confirmed accepted on 2026-10-03 (played from the Fire TV app). If effects start failing with HTTP 400 or the controller gets flaky, suspect payload size.
 - Auth: a bad token gets 401. `POST /api/v1/new` returns 403 outside pairing mode. Pairing mode: hold the power button 5–7 s, then there's a ~30 s window. Tokens survive reboots and power cycles; only a factory reset kills them. Pairing doesn't disconnect the Nanoleaf app or HomeKit.
 - Scene palettes: `{"write":{"command":"request","animName":N}}`. Reported `animType:"plugin"` means the scene animates. To freeze one, write its palette as a static effect.
 
@@ -77,7 +77,7 @@ change a feature.**
 
 ## Adding things
 
-- **Effect:** `fx_name(shapes, adj, o)` returns `{panelId: [((r,g,b), tenths), …]}` with equal totals. Register it in `EFFECTS` with `label, icon, desc, colors` (plus optional `seed`); `o` is that registry entry, so `o["colors"]` is available. The page lists it automatically. Helpers: `adjacency`, `euler_tour`, `bfs_dist`, `events_to_frames`, `grid_to_panels`, `compress`, `hsv`, `mix`, `dim`. Keep frame counts reasonable: 310 keyframes is confirmed OK, and Snake's ~1245 (16 KB) is the biggest in use, confirmed accepted 2026-10-03. Check sizes with `effects.build(...)["frames"]`.
+- **Effect:** `fx_name(shapes, adj, o)` returns `{panelId: [((r,g,b), tenths), …]}` with equal totals. Register it in `EFFECTS` with `label, icon, desc, colors` (plus optional `seed`, and `group:"game"` for the Arcade section); `o` is that registry entry, so `o["colors"]` is available. The page lists it automatically. Helpers: `adjacency`, `euler_tour`, `bfs_dist`, `bfs_path`, `columns` (x-groups, top→bottom), `rows` (y-bands, top first), `events_to_frames`, `grid_to_panels`, `compress`, `hsv`, `mix`, `dim`. Keep frame counts reasonable: 310 keyframes is confirmed OK, and Snake's ~1245 (16 KB) is the biggest in use, confirmed accepted 2026-10-03. Check sizes with `effects.build(...)["frames"]`.
 - **Mood:** add to `PRESETS` in `nanoleaf.html`: `{name, icon, anim: flow|wheel|random|fade|highlight|static, speed: slow|medium|fast, palette:[[h,s,b],…]}`. Then update the mood list and count in README.
 - **Glyph:** add strokes to `glyphs.json` (and aliases if needed). Preview with `nl.py say --preview`.
 - **API route:** add it to `H.do_GET` / `do_PUT` / `do_DELETE`. Send device writes through `write()`, and document the route in README's proxy table.
@@ -88,6 +88,7 @@ change a feature.**
 - Terminology: **"mood"** = palette scene (a `PRESETS` entry); **"effect"/"style"** = animation.
 - Dim warm and pastel still moods are popular (Cozy is the favourite).
 - Keep effects simple. Snake with white level-up flashes was rejected and colour-scheme changes ("too much going on"). The current Snake is plain green with a lime head and red apples, grows up to 7 and shrinks at the end of a round.
+- Arcade games (added 1.1) follow the same rule: classic colours, no whole-wall white flashes (Tetris's line clear and Pac-Man's ghost catch flash only the panels involved). They're scripted rounds with seeded randomness, so the same wall always plays the same game. Pac-Man's chomp (yellow/orange toggle) was dropped because the device's fades smeared it into an orange trail.
 - Letters must stay small and central. The first versions spanned the whole Y-shaped wall and "looked terrible". Unreadable glyphs (T, -, !) were dropped. E/M/W can't be drawn, so "I LOVE YOU" is impossible; use "I ❤ YOU".
 
 ## Lessons / gotchas

@@ -331,6 +331,10 @@
           <div class="grid" id="fxScenes"></div>
         </div>
         <div class="sec">
+          <h3>Arcade <span class="hint">retro games the wall plays by itself</span></h3>
+          <div class="grid" id="gameScenes"></div>
+        </div>
+        <div class="sec">
           <h3>Moods <span class="hint">designed here, not on the device</span></h3>
           <div class="grid" id="presetScenes"></div>
         </div>
@@ -1002,7 +1006,7 @@ function sceneEntries(){
   if(D)D.effects.effectsList.forEach(n=>{const p=PALETTES[n]||{palette:[]};
     out.push({key:"device:"+n,sc:{name:n,palette:p.palette,anim:p.animType==="plugin"?"plugin":"static"},active:isDev&&n===sel,play:()=>playScene(n)});});
   FX.forEach(f=>out.push({key:"fx:"+f.name,sc:{name:f.label,icon:f.icon,kind:"fx",colors:f.colors,desc:f.desc},
-    active:!!(UI.fx&&UI.fx.name===f.name&&D&&(f.live?repActive():sel==="*Dynamic*")),play:()=>playFx(f)}));
+    active:!!(UI.fx&&UI.fx.name===f.name&&D&&(f.live?repActive():sel==="*Dynamic*")),play:()=>playFx(f),game:f.group==="game"}));
   PRESETS.forEach(p=>out.push({key:"mood:"+p.name,sc:p,active:!!(sc&&sc===p),play:()=>playScene(p)}));
   MINE.forEach(m=>out.push({key:"mine:"+m.name,sc:m,active:!!(sc&&sc.name===m.name),play:()=>playScene(m),onDelete:()=>deleteScene(m.name)}));
   return out;
@@ -1024,7 +1028,8 @@ function renderScenes(){
   $("#favCount").textContent=favs.length?favs.length+" saved":"";
   fill("#devScenes",all.filter(e=>e.key.startsWith("device:")));
   if(D)$("#devCount").textContent=D.effects.effectsList.length+" saved";
-  fill("#fxScenes",all.filter(e=>e.key.startsWith("fx:")));
+  fill("#fxScenes",all.filter(e=>e.key.startsWith("fx:")&&!e.game));
+  fill("#gameScenes",all.filter(e=>e.game));
   fill("#presetScenes",all.filter(e=>e.key.startsWith("mood:")));
   const mine=fill("#myScenes",all.filter(e=>e.key.startsWith("mine:")),true);
   if(!MINE.length)mine.innerHTML='<div class="empty" style="grid-column:1/-1">Nothing saved yet. Build one below, or paint the wall and save it.</div>';

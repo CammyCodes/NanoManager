@@ -242,7 +242,9 @@ function buildRows(){
   R.push({id:"favs",title:"Favourites",sub:"☰ on any card adds it here",
     items:favKeys().map(k=>entry(...parseKey(k))).filter(Boolean)});
   R.push({id:"moods",title:"Moods",items:DATA.moods.map(m=>entry("mood",m.name))});
-  if(DATA.effects.length)R.push({id:"fx",title:"Effects",items:DATA.effects.map(f=>entry("fx",f.name))});
+  const fx=DATA.effects.filter(f=>f.group!=="game"),games=DATA.effects.filter(f=>f.group==="game");
+  if(fx.length)R.push({id:"fx",title:"Effects",items:fx.map(f=>entry("fx",f.name))});
+  if(games.length)R.push({id:"games",title:"Arcade",items:games.map(f=>entry("fx",f.name))});
   if(DATA.scenes.length)R.push({id:"mine",title:"My scenes",items:DATA.scenes.map(s=>entry("mine",s.name)).filter(Boolean)});
   const list=(DEV&&DEV.effects.effectsList)||Object.keys(DATA.palettes);
   R.push({id:"device",title:"Wall scenes",sub:"saved on the controller",items:list.map(n=>entry("device",n)).filter(Boolean)});

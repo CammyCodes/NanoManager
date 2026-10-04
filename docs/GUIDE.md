@@ -29,7 +29,7 @@ fallen back to checking every 5 seconds, and **offline** if the panels can't be 
 |---|---|
 | **Now playing** | Name of the scene, whether it's moving or still, brightness slider with quick presets, and **Play** / **Freeze** to switch between the animation and a still version of the same colours. |
 | **The wall** | Your real panel layout in the current colours; hover a panel to see its id. Moving scenes drift gently on the preview, and messages and effects play on it in time with the wall. **Flip view** if it looks upside down (remembered). |
-| **Scenes** | *Favourites*: every scene card (here and under Custom) has a ♡ in its corner — click it and that scene is kept at the top of this tab, in the order you added them; click the pink ♥ to take it off. *On the panels*: the 16 scenes saved on the device. *Effects*: animations built here (Snake, Starlight, Fairy Dust, Ripple, Ripple In, Rain, Wave, Heartbeat) that the panels then play by themselves, plus **Replicate**, which copies your Mac's screen live. *Moods*: 27 scenes designed in this page — moving ones (Aurora, Ocean, Sunrise, Lava, Forest, Candlelight, Galaxy, Synthwave, Cyberpunk, Cherry Blossom, Ice, Rainbow, Christmas, Halloween, Love, Barbie) and still pastel/cosy ones (Deep Focus, Cozy, Latte, Fireside, Blush, Lavender, Peach, Mint, Sorbet, Seafoam, Honey). |
+| **Scenes** | *Favourites*: every scene card (here and under Custom) has a ♡ in its corner — click it and that scene is kept at the top of this tab, in the order you added them; click the pink ♥ to take it off. *On the panels*: the 16 scenes saved on the device. *Effects*: animations built here (Snake, Starlight, Fairy Dust, Ripple, Ripple In, Rain, Wave, Heartbeat) that the panels then play by themselves, plus **Replicate**, which copies your Mac's screen live. *Arcade*: retro games the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles); see [Arcade](#arcade). *Moods*: 27 scenes designed in this page — moving ones (Aurora, Ocean, Sunrise, Lava, Forest, Candlelight, Galaxy, Synthwave, Cyberpunk, Cherry Blossom, Ice, Rainbow, Christmas, Halloween, Love, Barbie) and still pastel/cosy ones (Deep Focus, Cozy, Latte, Fireside, Blush, Lavender, Peach, Mint, Sorbet, Seafoam, Honey). |
 | **Custom** | *My scenes*: the ones you've saved (paintings, messages and your own mixes). *Make your own*: pick up to 7 colours, a motion (Flow, Wheel, Random, Fade, Highlight, or Still) and a speed (Slow 3–6 s, Medium 1.4–2.8 s, Fast 0.4–1 s per change), then **Try it** or **Save**. |
 | **Colour** | One colour on every panel, applied as you pick. Plus a warm-to-cool white slider with presets. |
 | **Paint** | Choose a brush colour, click panels. Changes go to the wall as you go (untick *Live* to batch them and press **Send to panels**). **Undo**, **Fill all**, **Discard edits**, and **Save scene** to keep a painting. |
@@ -103,6 +103,20 @@ They're in `effects.py`; each one gives every panel its own list of keyframes.
 | 🌈 Wave | A rainbow sweeps left to right. |
 | 💓 Heartbeat | The heart from the message beats lub-dub. |
 
+### Arcade
+
+Retro games the wall plays by itself, each as one looping round, built from your wall's
+layout like the effects above (so they keep playing with the app closed). They're in their
+own **Arcade** section on the Scenes tab and can be favourited like any other card.
+
+| Game | What it does |
+|---|---|
+| 🟡 Pac-Man | Every panel starts with a peach pellet. Pac-Man eats his way round Snake's route with the red ghost a few panels behind, eaten panels turning to dark-blue maze. The panel furthest from the start holds the big power pellet: the ghost turns blue and runs, Pac-Man turns round and eats it, then clears the board. The pellets fade back in for the next round (about 15 s). |
+| 🧱 Tetris | Blocks in the seven Tetris colours fall down the wall's columns and stack from the bottom. A full band of panels flashes and clears, and what's above drops down. After a while the stack reaches the top band and the grey game-over curtain comes down (about 26 s). |
+| 🏓 Pong | A blue paddle on the left of the wall and a red one on the right, each moving between two spots, and a white ball that speeds up. The paddle flashes pale when it hits; each rally ends with a miss and the wall glows in the scorer's colour. One point each, then it starts again (about 27 s). |
+| 🔴 Simon | The wall splits into four dim zones: green, red, blue and yellow. Simon plays a sequence that grows by one every round and the player repeats it a little quicker; after five rounds the zones spin round in a victory lap (about 31 s). |
+| 🏍️ Light Cycles | Tron: a cyan bike and an orange bike start far apart and race over the wall leaving light trails, each steering for open space. The first one boxed in flares and de-rezzes; the winner's trail glows. Three rounds from different starts (about 16 s). |
+
 ### 🖥️ Replicate (your screen's mood on the wall)
 
 Replicate makes the wall copy the colours of whatever is on your Mac's main screen,
@@ -130,9 +144,10 @@ follows within a second or two, fading gently.
 
 To add one: write a function in `effects.py` that returns `{panelId: [(rgb, tenths), …]}`
 with the same total for every panel, register it in `EFFECTS` (with a label, icon,
-description and colours), and it appears on the Scenes tab. Helpers there: `adjacency`
+description and colours; add `"group": "game"` to put it under Arcade), and it appears on the Scenes tab. Helpers there: `adjacency`
 (which panels touch), `euler_tour` (a route round the wall), `bfs_dist` (hops from a
-panel), `events_to_frames` (sparse flashes on a dark base), `grid_to_panels`
+panel), `bfs_path` (the shortest route between two panels), `columns` / `rows` (the wall
+sliced vertically / horizontally), `events_to_frames` (sparse flashes on a dark base), `grid_to_panels`
 (frame-by-frame designs). Rebuild the app afterwards.
 
 ## Spelling messages
@@ -381,7 +396,7 @@ pkill -9 NanoManager
 | `mobile/` | Phone layout, icons and manifest for the Home Screen app |
 | `nl.py` | Command line tool |
 | `message.py`, `glyphs.json` | The message spelling animation, and which panels light up for each character |
-| `effects.py` | Snake, Starlight, Ripple, Rain, Wave... built from your wall's layout |
+| `effects.py` | Snake, Starlight, Ripple, Rain, Wave... and the Arcade games, built from your wall's layout |
 | `replicate.py` | Screen-mood mapping for Replicate (the capture itself is in the Mac app) |
 | `app/` | The Mac app (Swift) and its build script |
 | `windows/` | The Windows launcher and zip builder |
