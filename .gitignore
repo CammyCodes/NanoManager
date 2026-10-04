@@ -4,6 +4,7 @@ token.txt
 device.json
 scenes.json
 favorites.json
+games.json
 ui_state.json
 palettes.json
 server.log

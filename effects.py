@@ -529,11 +529,13 @@ def fx_pong(shapes, adj, o):
     return grid_to_panels(steps, ids)
 
 
-def fx_simon(shapes, adj, o):
-    """Simon. The wall splits into four dim zones; Simon plays a sequence that grows by
-    one every round and the player repeats it, a little quicker. After five rounds the
-    zones spin round in a victory lap."""
-    rnd = random.Random(o.get("seed", 4))
+SIMON_COLOURS = [(0, 220, 40), (255, 20, 20), (30, 70, 255), (255, 200, 0)]   # green, red, blue, yellow
+
+
+def simon_zones(shapes, adj):
+    """Split the wall into (up to) four Simon zones, as far apart as the layout allows.
+    Returns ({panelId: zone}, {zone: rgb}, zones in clockwise order from top-left).
+    Shared by the Simon demo and the playable game (simon.py)."""
     pos = {p["panelId"]: centre(pts) for p, pts in shapes}
     ids = sorted(pos)
     d = {pid: bfs_dist(adj, pid) for pid in ids}
@@ -551,10 +553,19 @@ def fx_simon(shapes, adj, o):
         mx = sum(x for x, _ in m) / len(m); my = sum(y for _, y in m) / len(m)
         return (math.degrees(math.atan2(my - cy, mx - cx)) + 135) % 360
     order = sorted(range(len(seeds)), key=angle)
-    simon = [(0, 220, 40), (255, 20, 20), (30, 70, 255), (255, 200, 0)]   # green, red, blue, yellow
-    colour = {z: simon[k] for k, z in enumerate(order)}
+    colour = {z: SIMON_COLOURS[k] for k, z in enumerate(order)}
+    return zone, colour, order
+
+
+def fx_simon(shapes, adj, o):
+    """Simon. The wall splits into four dim zones; Simon plays a sequence that grows by
+    one every round and the player repeats it, a little quicker. After five rounds the
+    zones spin round in a victory lap."""
+    rnd = random.Random(o.get("seed", 4))
+    zone, colour, order = simon_zones(shapes, adj)
+    ids = sorted(zone)
     rounds = 5
-    seq = [rnd.randrange(len(seeds)) for _ in range(rounds)]
+    seq = [rnd.randrange(len(order)) for _ in range(rounds)]
     events = {z: [] for z in colour}
     t = 8
 

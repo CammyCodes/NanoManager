@@ -117,6 +117,30 @@ own **Arcade** section on the Scenes tab and can be favourited like any other ca
 | 🔴 Simon | The wall splits into four dim zones: green, red, blue and yellow. Simon plays a sequence that grows by one every round and the player repeats it a little quicker; after five rounds the zones spin round in a victory lap (about 31 s). |
 | 🏍️ Light Cycles | Tron: a cyan bike and an orange bike start far apart and race over the wall leaving light trails, each steering for open space. The first one boxed in flares and de-rezzes; the winner's trail glows. Three rounds from different starts (about 16 s). |
 
+### 🎮 Play Simon (a real game, played by touching the panels)
+
+**Play Simon**, the first card under Arcade, is a game you play yourself:
+
+1. The wall splits into four dim colour zones: green, red, blue and yellow (the same zones as the Simon demo).
+2. **Watch:** Simon lights a zone. **Copy it** by touching any panel in that zone.
+3. Every round Simon replays the whole sequence plus **one new random colour**, and it speeds up as it gets longer.
+4. It goes on until you slip: touch the wrong zone, or wait more than 8 seconds. The whole wall then **flashes red** three
+   times and lights the zone you should have touched. Beat your best and it celebrates with a flash in all four colours.
+5. The dim board stays up afterwards: **touch any panel to play again**, so you don't need the phone or computer in your hand.
+
+While a game is on, the Now Playing card shows your **Score** (rounds completed) and your **Best**, which is saved
+(`games.json` in the data folder) and kept across restarts and updates. The Arcade heading shows your best too.
+You can also play on the wall preview in the app (or on your phone): click or tap the zones there. **↻ New game**
+starts again from round 1, and picking any other scene ends the game.
+
+- Taps reach NanoManager from the panels' own touch sensors over your Wi-Fi, so the computer running NanoManager
+  must be on (the Mac app open, or the Windows launcher running). The TV app doesn't have it.
+- Each round is sent to the controller as **one** animation and each correct touch as one short flash, all through the
+  usual rate limit. If you touch faster than the controller can be updated, every touch still counts; only the flashes
+  for the in-between ones are skipped.
+- If touching a panel also changes the scene or brightness, those are the wall's own *touch actions* set in the
+  Nanoleaf app. NanoManager puts the game board straight back, but turning those actions off makes it smoother.
+
 ### 🖥️ Replicate (your screen's mood on the wall)
 
 Replicate makes the wall copy the colours of whatever is on your Mac's main screen,
@@ -242,7 +266,7 @@ curl -X PUT http://127.0.0.1:8765/api/message -d '{"text":"YOU","preview":true}'
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | the control page |
-| GET | `/api/state` | snapshot: `online`, `paused`, `pausedFor`, `lastError`, `device` (the device's full `GET /`), `deviceIp`, `reconnect`, `ui` (what the page last wrote), `favorites`, `replicate` (`active`, `capturing`, `error`, `writes`) |
+| GET | `/api/state` | snapshot: `online`, `paused`, `pausedFor`, `lastError`, `device` (the device's full `GET /`), `deviceIp`, `reconnect`, `ui` (what the page last wrote), `favorites`, `replicate` (`active`, `capturing`, `error`, `writes`), `simon` (Play Simon: `active`, `phase`, `score`, `best`, `round`, `step`, zones and board colours) |
 | GET | `/api/events` | server-sent events: the same snapshot on connect and after every change |
 | GET | `/api/health` | fresh check: `online`, `paused`, `pausedFor`, `lastError` |
 | GET | `/api/palettes` | colours + motion type of the 16 device scenes (cached in `palettes.json`) |
@@ -255,7 +279,8 @@ curl -X PUT http://127.0.0.1:8765/api/message -d '{"text":"YOU","preview":true}'
 | PUT | `/api/favorites` | `{"key":"mood:Cozy","on":true}` to add, `"on":false` to remove; returns the new list |
 | PUT | `/api/state` | passed to the device's `/state` |
 | PUT | `/api/effect` | passed to the device's `/effects` |
-| PUT | `/api/fx` | play an effect: `{"name":"snake"}`; add `"preview":true` to get its frames without sending. `{"name":"replicate"}` starts Replicate |
+| PUT | `/api/fx` | play an effect: `{"name":"snake"}`; add `"preview":true` to get its frames without sending. `{"name":"replicate"}` starts Replicate, `{"name":"simon_play"}` starts a game of Simon |
+| PUT | `/api/simon` | Play Simon: `{"tap":51229}` touches a panel (as if on the wall), `{"action":"new"}` starts a new game; answers the game status (also in every snapshot as `simon`: `phase`, `score`, `best`, `round`, `step`, …) |
 | GET | `/api/replicate` | Replicate status plus the thumbnail size the Mac app should capture (`w`, `h`) |
 | PUT | `/api/replicate/frame` | from the Mac app: `{"w","h","px"}` (px = hex RGB, 6 characters a pixel); answers `{"active":…}` |
 | PUT | `/api/replicate/status` | from the Mac app: `{"error":"…"}` when it can't capture (shown on the page) |
@@ -398,12 +423,13 @@ pkill -9 NanoManager
 | `message.py`, `glyphs.json` | The message spelling animation, and which panels light up for each character |
 | `effects.py` | Snake, Starlight, Ripple, Rain, Wave... and the Arcade games, built from your wall's layout |
 | `replicate.py` | Screen-mood mapping for Replicate (the capture itself is in the Mac app) |
+| `simon.py` | Play Simon: the game's rules and the animations it sends (the server runs it) |
 | `app/` | The Mac app (Swift) and its build script |
 | `windows/` | The Windows launcher and zip builder |
 | `firetv/` | The Fire TV / Android TV app and its build script |
 | `scripts/` | One-line installers |
 
-Your own data (never committed): `token.txt`/`device.json` (pairing), `scenes.json`, `favorites.json`,
+Your own data (never committed): `token.txt`/`device.json` (pairing), `scenes.json`, `favorites.json`, `games.json` (Simon high score),
 `ui_state.json`, `palettes.json`, `server.log`. The Mac app keeps them in
 `~/Library/Application Support/NanoManager`, the Windows launcher in `%APPDATA%\NanoManager`, and
 running from source keeps them next to the script (or wherever `NANOLEAF_DATA_DIR` points).

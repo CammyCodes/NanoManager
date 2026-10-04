@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 import message                      # spelling messages one character at a time
 import effects                      # Snake, Starlight, Ripple… built as custom animations
 import replicate                    # Replicate: the wall mirrors the Mac's screen
+import simon                        # Play Simon: a real game, played by touching the panels
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -236,6 +237,7 @@ def snapshot():
         "ui": ui,
         "favorites": favs_list(),
         "replicate": rep_status(),
+        "simon": sim_status(),
         "phoneUrl": phone_url(),
         "glyphsOk": message.fits(st) if st else None,     # False: messages can't be spelled on this layout
     }
@@ -272,6 +274,12 @@ def refresh_state():
     # A device-saved scene or a plain colour is showing: whatever custom scene the
     # page last wrote is gone, so stop claiming it.
     if (sel and not sel.startswith("*")) or mode in ("hs", "ct"):
+        if sim_active() and time.time() - _sim_touch_at < 4:
+            # The tap that was a Simon move also fired the wall's own touch action (set in
+            # the Nanoleaf app) and changed the scene: put the game board back instead.
+            _sim_q.put(("resync", None))
+            broadcast_state()
+            return True
         with _ui_lock:
             if _ui.get("sceneName") or _ui.get("panels") or _ui.get("message") or _ui.get("fx"):
                 _ui.update({"sceneName": None, "panels": {}, "message": None, "fx": None})
@@ -295,12 +303,17 @@ def device_event_loop():
     """Follow the panels' own event stream (state + effect changes) forever."""
     while True:
         try:
-            req = urllib.request.Request(base() + "/events?id=1,3")
+            req = urllib.request.Request(base() + "/events?id=1,3,4")
             with urllib.request.urlopen(req, timeout=120) as r:
                 refresh_state()
+                ev = ""
                 for raw in r:
                     line = raw.decode("utf8", "ignore").strip()
-                    if line.startswith("data:"):
+                    if line.startswith("id:"):
+                        ev = line[3:].strip()
+                    elif line.startswith("data:") and ev == "4":
+                        on_touch(line[5:])              # a tap on the panels: only Simon listens
+                    elif line.startswith("data:"):
                         # Replicate writes about once a second and already knows what it
                         # wrote; re-reading the whole device each time would double the load.
                         if rep_active() and time.time() - _state_ts < 15:
@@ -309,6 +322,19 @@ def device_event_loop():
         except Exception:
             pass
         time.sleep(5)
+
+
+def on_touch(data):
+    """Touch events: {"events":[{"panelId":123,"gesture":0}]}. 0 = tap, 1 = double tap."""
+    try:
+        events = json.loads(data).get("events") or []
+    except (ValueError, AttributeError):
+        return
+    for e in events:
+        pid, gesture = e.get("panelId"), e.get("gesture")
+        if gesture in (0, 1) and isinstance(pid, int) and pid >= 0:
+            for _ in range(2 if gesture == 1 else 1):
+                sim_tap(pid, wall=True)
 
 
 def poll_loop():
@@ -415,6 +441,217 @@ def rep_run():
         _rep_wake.set()                         # keep easing towards the target until settled
     with _ui_lock:                              # remember the last colours once, not every second
         _save_json(UI_FILE, _ui)
+
+
+# ---------------------------------------------------------------- play Simon
+# _ui.fx = {name: "simon_play"} while the game is on. One worker thread runs it: each round
+# is ONE play-once animation (simon.Board.show_body), each correct tap one short flash, all
+# through write(). Taps come from the panels' touch events (on_touch) or from the page
+# (PUT /api/simon {"tap": panelId}) and are queued; when taps outrun the rate limiter only
+# the newest gets its flash, but every tap still counts. The best score is in games.json.
+SIMON_NAME = "simon_play"
+SIMON_CARD = {"name": SIMON_NAME, "label": "Play Simon", "icon": "🎮", "group": "game", "play": True,
+              "desc": "A real game: watch the colours, then touch the same zones on the wall (or tap them here). "
+                      "One more every round, until you slip.",
+              "colors": ["#00dc28", "#ff1414", "#1e46ff", "#ffc800"]}
+GAMES_FILE = os.path.join(DATA, "games.json")
+_sim = {"phase": "idle", "score": 0, "best": 0, "round": 0, "step": 0, "newBest": False,
+        "board": {}, "zones": {}, "colours": {}, "show": None, "flash": None, "over": None, "id": 0}
+_sim_lock = threading.Lock()
+_sim_q = queue.Queue()
+_sim_thread = None
+_sim_touch_at = 0.0
+
+
+def sim_active():
+    with _ui_lock:
+        fx = _ui.get("fx") or {}
+    return fx.get("name") == SIMON_NAME
+
+
+def sim_best():
+    return int((_load_json(GAMES_FILE, {}).get("simon") or {}).get("best") or 0)
+
+
+def sim_status():
+    with _sim_lock:
+        out = dict(_sim)
+    out["active"] = sim_active()
+    if not out["active"]:
+        out.update({"phase": "idle", "board": {}, "show": None})
+    return out
+
+
+_sim["best"] = sim_best()
+
+
+def sim_tap(pid, wall=False):
+    global _sim_touch_at
+    if not sim_active():
+        return False
+    if wall:
+        _sim_touch_at = time.time()
+    _sim_q.put(("tap", pid))
+    return True
+
+
+def sim_start(play=True):
+    """Start the worker (or restart the game if it's already running)."""
+    global _sim_thread
+    with _sim_lock:
+        if _sim_thread is None:
+            while not _sim_q.empty():
+                _sim_q.get_nowait()
+            _sim_thread = threading.Thread(target=sim_loop, args=(play,), daemon=True)
+            _sim_thread.start()
+            return
+    _sim_q.put(("new", None) if play else ("resync", None))
+
+
+def sim_loop(play):
+    global _sim_thread
+    while True:
+        try:
+            sim_run(play)
+        except Exception as e:                  # never leave the game wedged
+            print(f"[simon] {type(e).__name__}: {e}", flush=True)
+            time.sleep(2)
+        with _sim_lock:                         # exit under the lock so sim_start can't miss us leaving
+            if not sim_active():
+                _sim.update({"phase": "idle", "show": None})
+                _sim_thread = None
+                return
+        play = False
+
+
+def sim_stop():
+    with _ui_lock:
+        if (_ui.get("fx") or {}).get("name") == SIMON_NAME:
+            _ui.update({"sceneName": None, "panels": {}, "message": None, "fx": None})
+            _save_json(UI_FILE, _ui)
+    broadcast_state()
+
+
+def sim_run(play):
+    with _state_lock:
+        st = _state
+    if not st:
+        time.sleep(1)
+        return
+    board = simon.Board(st)
+    best = sim_best()
+
+    def status(**kw):
+        with _sim_lock:
+            _sim["id"] += 1
+            for k in ("show", "over"):          # tag new animations so each page plays them once
+                if kw.get(k):
+                    kw[k] = dict(kw[k], id=_sim["id"])
+            _sim.update(kw)
+        broadcast_state()
+
+    def send(body):
+        if not sim_active():                    # another scene was picked: don't paint over it
+            return False
+        code, _ = write("/effects", {"write": body})
+        if 200 <= code < 300:
+            with _state_lock:                   # we know what the device shows now
+                if _state:
+                    _state["effects"]["select"] = "*Dynamic*"
+                    _state["state"]["colorMode"] = "effect"
+            return True
+        return False
+
+    status(phase="waiting", score=0, best=best, round=0, step=0, newBest=False, show=None, flash=None, over=None,
+           board=board.hexes(), zones={str(p): z for p, z in board.zone.items()},
+           colours={str(z): "#%02x%02x%02x" % c for z, c in board.colour.items()})
+    send(board.idle_body())
+    game, over_at = simon.Game(board.order), 0.0
+    nxt, action = (time.time() + 1.2, "round") if play else (None, None)
+
+    def new_game():
+        nonlocal game, nxt, action
+        game = simon.Game(board.order)
+        status(phase="ready", score=0, round=0, step=0, newBest=False, show=None, over=None)
+        nxt, action = time.time() + 1.2, "round"
+
+    def game_over():
+        nonlocal best, over_at, nxt
+        new_best = game.score > best
+        if new_best:
+            best = game.score
+            data = _load_json(GAMES_FILE, {})
+            data["simon"] = {"best": best, "at": int(time.time())}
+            _save_json(GAMES_FILE, data)
+        wanted = game.wanted
+        body, secs = board.over_body(wanted, new_best)
+        status(phase="over", score=game.score, best=best, newBest=new_best,
+               over={"wanted": wanted, "newBest": new_best, "seconds": secs})
+        send(body)
+        over_at, nxt = time.time(), None
+
+    while sim_active():
+        with _state_lock:
+            on = ((_state or {}).get("state") or {}).get("on", {}).get("value", True)
+        if not on:                              # switched off at the wall or in the app: game ends
+            sim_stop()
+            return
+        wait = 1.0 if nxt is None else max(0.02, min(1.0, nxt - time.time()))
+        try:
+            kind, arg = _sim_q.get(timeout=wait)
+        except queue.Empty:
+            kind, arg = None, None
+        if not sim_active():
+            return
+        now = time.time()
+        if kind == "new":
+            new_game()
+        elif kind == "resync":
+            send(board.idle_body(fade=2))
+        elif kind == "tap":
+            z = board.zone_of(arg)
+            if z is None:
+                continue
+            with _sim_lock:
+                phase = _sim["phase"]
+            if phase in ("over", "waiting"):
+                if now - over_at > 1.5:         # tap the wall to play (again)
+                    new_game()
+                continue
+            if phase != "input":
+                continue                        # watching: taps don't count yet
+            result = game.press(z)
+            if result == "fail":
+                game_over()
+                continue
+            with _sim_lock:
+                flash = {"zone": z, "id": _sim["id"] + 1}
+            if result == "round":
+                status(phase="good", score=game.score, step=game.step, flash=flash)
+                nxt, action = now + 1.3, "round"
+            else:
+                status(step=game.step, flash=flash)
+                nxt, action = now + simon.INPUT_TIMEOUT, "timeout"
+            if _sim_q.empty():                  # if more taps are queued, skip to the newest
+                send(board.press_body(z))
+        elif nxt is not None and now >= nxt:
+            if action == "round":
+                seq = game.next_round()
+                body, secs = board.show_body(seq)
+                hold, gap = simon.speed(len(seq))
+                if not send(body):
+                    game.seq.pop()
+                    nxt = time.time() + 2       # breaker/HTTP error: try the round again shortly
+                    continue
+                status(phase="show", round=len(seq), step=0,
+                       show={"seq": seq, "hold": hold, "gap": gap, "lead": simon.LEAD})
+                nxt, action = time.time() + secs + 0.2, "input"
+            elif action == "input":
+                status(phase="input")
+                nxt, action = now + simon.INPUT_TIMEOUT, "timeout"
+            elif action == "timeout":
+                game.time_out()
+                game_over()
 
 
 # ---------------------------------------------------------------- reconnect
@@ -760,7 +997,9 @@ class H(BaseHTTPRequestHandler):
         elif path == "/api/effects":
             with _state_lock:
                 st = _state
-            self._send(200, json.dumps(effects.catalogue(st) + [REP_CARD]))
+            cat = effects.catalogue(st)
+            first_game = next((i for i, e in enumerate(cat) if e.get("group") == "game"), len(cat))
+            self._send(200, json.dumps(cat[:first_game] + [SIMON_CARD] + cat[first_game:] + [REP_CARD]))
         elif path == "/api/replicate":
             self._send(200, json.dumps({**rep_status(), "w": REP_GRID[0], "h": REP_GRID[1], "every": REP_GAP}))
         elif path == "/api/glyphs":
@@ -821,6 +1060,17 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/fx":
             self._fx(payload)
             return
+        if path == "/api/simon":                    # {"tap": panelId} from the page, or {"action": "new"}
+            p = payload if isinstance(payload, dict) else {}
+            if p.get("action") == "new" and not sim_active():
+                self._fx({"name": SIMON_NAME})
+                return
+            if p.get("action") == "new":
+                sim_start(play=True)
+            elif "tap" in p:
+                sim_tap(p.get("tap"))
+            self._send(200, json.dumps(sim_status()))
+            return
         if path == "/api/replicate/frame":         # from the Mac app: a screen thumbnail
             if rep_active():
                 with _rep_lock:
@@ -863,6 +1113,9 @@ class H(BaseHTTPRequestHandler):
         """Play one of the built-in animated effects (or preview its frames)."""
         if payload.get("name") == REP_NAME:
             self._replicate(payload)
+            return
+        if payload.get("name") == SIMON_NAME:
+            self._simon(payload)
             return
         with _state_lock:
             st = _state
@@ -912,6 +1165,29 @@ class H(BaseHTTPRequestHandler):
         rep_start()
         broadcast_state()
         schedule_refresh(0.5)
+        self._send(200, json.dumps(out))
+
+    def _simon(self, payload):
+        """Start a game of Simon. The worker writes the board and the first round."""
+        out = {"name": SIMON_NAME, "seconds": 0, "frames": []}
+        if payload.get("preview"):
+            self._send(200, json.dumps(out))
+            return
+        with _state_lock:
+            st = _state
+        if not st:
+            self._send(502, json.dumps({"error": "Panels unreachable"}))
+            return
+        if not (st.get("state") or {}).get("on", {}).get("value", True):
+            write("/state", {"on": {"value": True}})
+            with _state_lock:
+                if _state:
+                    _state["state"]["on"]["value"] = True
+        with _ui_lock:
+            _ui.update({"sceneName": SIMON_CARD["label"], "panels": {}, "message": None, "fx": {"name": SIMON_NAME}})
+            _save_json(UI_FILE, _ui)
+        sim_start(play=True)
+        broadcast_state()
         self._send(200, json.dumps(out))
 
     def _message(self, payload):
@@ -991,6 +1267,8 @@ if __name__ == "__main__":
     threading.Thread(target=poll_loop, daemon=True).start()
     if rep_active():
         rep_start()
+    if sim_active():
+        sim_start(play=False)       # board back up; tap the wall to play
     srv = Server(LISTEN, H)
     try:
         srv.serve_forever()
