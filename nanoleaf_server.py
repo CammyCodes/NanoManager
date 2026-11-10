@@ -25,11 +25,15 @@ Reconnecting: once the panels have been found (or re-paired) their address and t
 are remembered in device.json in the data folder, which then takes precedence over
 NANOLEAF_IP / token.txt. See reconnect_job() for how a lost device is found again.
 """
-import json, os, queue, socket, threading, time, urllib.request, urllib.error
+import datetime, hashlib, hmac, json, math, os, queue, secrets, socket, threading, time, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 import message                      # spelling messages one character at a time
+import routines                     # sunrise alarm, sleep timer, pomodoro, slideshow, schedule
+import qr                           # QR codes for opening the page on a phone
 import effects                      # Snake, Starlight, Ripple… built as custom animations
 import replicate                    # Replicate: the wall mirrors the Mac's screen
+import simon                        # Play Simon: a real game, played by swiping on the panels
+import remote                       # Debug mode: step through scenes by swiping on the wall
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -236,8 +240,13 @@ def snapshot():
         "ui": ui,
         "favorites": favs_list(),
         "replicate": rep_status(),
+        "simon": sim_status(),
+        "debug": dbg_status(),
+        "touch": touch_status(),
         "phoneUrl": phone_url(),
         "glyphsOk": message.fits(st) if st else None,     # False: messages can't be spelled on this layout
+        "routine": rt_status(),
+        "settings": settings_public(),
     }
 
 
@@ -272,6 +281,12 @@ def refresh_state():
     # A device-saved scene or a plain colour is showing: whatever custom scene the
     # page last wrote is gone, so stop claiming it.
     if (sel and not sel.startswith("*")) or mode in ("hs", "ct"):
+        if (sim_active() or dbg_active()) and time.time() - _touch_at < 4:
+            # The swipe that was a Simon move / debug-mode button also fired the wall's own
+            # touch action (set in the Nanoleaf app) and changed the scene: put ours back.
+            (_sim_q if sim_active() else _dbg_q).put(("resync", None))
+            broadcast_state()
+            return True
         with _ui_lock:
             if _ui.get("sceneName") or _ui.get("panels") or _ui.get("message") or _ui.get("fx"):
                 _ui.update({"sceneName": None, "panels": {}, "message": None, "fx": None})
@@ -295,12 +310,17 @@ def device_event_loop():
     """Follow the panels' own event stream (state + effect changes) forever."""
     while True:
         try:
-            req = urllib.request.Request(base() + "/events?id=1,3")
+            req = urllib.request.Request(base() + "/events?id=1,3,4")
             with urllib.request.urlopen(req, timeout=120) as r:
                 refresh_state()
+                ev = ""
                 for raw in r:
                     line = raw.decode("utf8", "ignore").strip()
-                    if line.startswith("data:"):
+                    if line.startswith("id:"):
+                        ev = line[3:].strip()
+                    elif line.startswith("data:") and ev == "4":
+                        on_touch(line[5:])              # a tap on the panels: only Simon listens
+                    elif line.startswith("data:"):
                         # Replicate writes about once a second and already knows what it
                         # wrote; re-reading the whole device each time would double the load.
                         if rep_active() and time.time() - _state_ts < 15:
@@ -309,6 +329,95 @@ def device_event_loop():
         except Exception:
             pass
         time.sleep(5)
+
+
+# ---------------------------------------------------------------- touch
+# Touch events: {"events":[{"panelId":N,"gesture":G}]}. On this wall (Shapes, FW 7.1.6) only
+# swipes ever arrive (gesture 2-5, panelId -1, ~0.5 s late); taps (0/1, with a panel id) are
+# documented but never sent, holds send nothing, and the UDP touch stream stays silent. Taps
+# are still handled in case another firmware sends them. Swipes drive Play Simon and debug
+# mode. Directions arrive as seen on the wall (its mounting rotation doesn't apply); the first
+# event of a swipe is the real one and an "echo" in the opposite direction often follows
+# 0.4-0.6 s later, which SWIPE_GAP drops.
+SWIPES = {2: "up", 3: "down", 4: "left", 5: "right"}
+SWIPE_GAP = 0.8         # one movement can report more than once: ignore swipes closer than this
+DEBUG_PATTERN = ["down", "up", "down"]
+DEBUG_GAP = 8.0         # seconds allowed between the swipes of the pattern
+TOUCH_FILE = os.path.join(DATA, "touch.json")       # {"rotate": degrees} if swipes come out turned
+_touch = {"dir": None, "raw": None, "at": 0.0, "n": 0}
+_touch_lock = threading.Lock()
+_touch_at = 0.0
+_last_swipe = 0.0
+_pattern = []
+
+
+def touch_rotation():
+    """Degrees to turn the device's swipe directions by. 0: the wall reports them as seen (checked
+    on a wall mounted at 180°); touch.json can turn them if another wall differs."""
+    saved = _load_json(TOUCH_FILE, {})
+    if isinstance(saved.get("rotate"), (int, float)):
+        return saved["rotate"] % 360
+    return 0
+
+
+def touch_status():
+    with _touch_lock:
+        out = dict(_touch)
+    out["rotate"] = touch_rotation()
+    return out
+
+
+def swipe_dir(raw):
+    """Reported direction -> the direction to act on, turned clockwise by touch_rotation()."""
+    vx, vy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[raw]   # screen space, y down
+    r = math.radians(touch_rotation())
+    sx, sy = vx * math.cos(r) - vy * math.sin(r), vx * math.sin(r) + vy * math.cos(r)
+    if abs(sx) > abs(sy):
+        return "right" if sx > 0 else "left"
+    return "down" if sy > 0 else "up"
+
+
+def on_touch(data):
+    try:
+        events = json.loads(data).get("events") or []
+    except (ValueError, AttributeError):
+        return
+    for e in events:
+        pid, gesture = e.get("panelId"), e.get("gesture")
+        if gesture in SWIPES:
+            on_swipe(SWIPES[gesture])
+        elif gesture in (0, 1) and isinstance(pid, int) and pid >= 0:
+            for _ in range(2 if gesture == 1 else 1):
+                sim_tap(pid, wall=True)
+
+
+def on_swipe(raw):
+    global _touch_at, _last_swipe
+    now = time.time()
+    if now - _last_swipe < SWIPE_GAP:
+        print(f"[touch] {time.strftime('%H:%M:%S')} swipe {raw} ignored (echo / too soon after the last one)", flush=True)
+        return
+    _last_swipe = _touch_at = now
+    d = swipe_dir(raw)
+    print(f"[touch] {time.strftime('%H:%M:%S')} swipe {raw}" + (f" -> {d}" if d != raw else ""), flush=True)
+    with _touch_lock:
+        _touch.update({"dir": d, "raw": raw, "at": now, "n": _touch["n"] + 1})
+    if dbg_active():
+        _dbg_q.put({"left": ("step", -1), "right": ("step", 1), "up": ("toggle", None), "down": ("exit", None)}[d])
+    elif sim_active() and sim_phase() == "input":
+        del _pattern[:]                         # the game has the wall: no debug pattern mid-sequence
+        _sim_q.put(("swipe", d))
+    else:
+        _pattern.append((d, now))
+        del _pattern[:-len(DEBUG_PATTERN)]
+        if [x for x, _ in _pattern] == DEBUG_PATTERN and \
+                all(b - a <= DEBUG_GAP for (_, a), (_, b) in zip(_pattern, _pattern[1:])):
+            del _pattern[:]
+            print("[debug] pattern down-up-down", flush=True)
+            dbg_enter()
+        elif sim_active():
+            _sim_q.put(("swipe", d))            # waiting/game over: a swipe starts a game
+    broadcast_state()
 
 
 def poll_loop():
@@ -415,6 +524,436 @@ def rep_run():
         _rep_wake.set()                         # keep easing towards the target until settled
     with _ui_lock:                              # remember the last colours once, not every second
         _save_json(UI_FILE, _ui)
+
+
+# ---------------------------------------------------------------- play Simon
+# _ui.fx = {name: "simon_play"} while the game is on. One worker thread runs it: each round
+# is ONE play-once animation (simon.Board.show_body), each correct tap one short flash, all
+# through write(). Taps come from the panels' touch events (on_touch) or from the page
+# (PUT /api/simon {"tap": panelId}) and are queued; when taps outrun the rate limiter only
+# the newest gets its flash, but every tap still counts. The best score is in games.json.
+SIMON_NAME = "simon_play"
+SIMON_CARD = {"name": SIMON_NAME, "label": "Play Simon", "icon": "🎮", "group": "game", "play": True,
+              "desc": "A real game: watch the colours, then swipe towards the same zones on the wall (or tap them "
+                      "here). One more every round, until you slip.",
+              "colors": ["#00dc28", "#ff1414", "#1e46ff", "#ffc800"]}
+GAMES_FILE = os.path.join(DATA, "games.json")
+_sim = {"phase": "idle", "score": 0, "best": 0, "round": 0, "step": 0, "newBest": False,
+        "board": {}, "zones": {}, "colours": {}, "dirs": {}, "show": None, "flash": None, "over": None, "id": 0}
+_sim_lock = threading.Lock()
+_sim_q = queue.Queue()
+_sim_thread = None
+
+
+def sim_active():
+    with _ui_lock:
+        fx = _ui.get("fx") or {}
+    return fx.get("name") == SIMON_NAME
+
+
+def sim_best():
+    return int((_load_json(GAMES_FILE, {}).get("simon") or {}).get("best") or 0)
+
+
+def sim_status():
+    with _sim_lock:
+        out = dict(_sim)
+    out["active"] = sim_active()
+    if not out["active"]:
+        out.update({"phase": "idle", "board": {}, "show": None})
+    return out
+
+
+_sim["best"] = sim_best()
+
+
+def sim_phase():
+    with _sim_lock:
+        return _sim["phase"]
+
+
+def sim_tap(pid, wall=False):
+    global _touch_at
+    if not sim_active():
+        return False
+    if wall:
+        _touch_at = time.time()
+    _sim_q.put(("tap", pid))
+    return True
+
+
+def sim_start(play=True):
+    """Start the worker (or restart the game if it's already running)."""
+    global _sim_thread
+    with _sim_lock:
+        if _sim_thread is None:
+            while not _sim_q.empty():
+                _sim_q.get_nowait()
+            _sim_thread = threading.Thread(target=sim_loop, args=(play,), daemon=True)
+            _sim_thread.start()
+            return
+    _sim_q.put(("new", None) if play else ("resync", None))
+
+
+def sim_loop(play):
+    global _sim_thread
+    while True:
+        try:
+            sim_run(play)
+        except Exception as e:                  # never leave the game wedged
+            print(f"[simon] {type(e).__name__}: {e}", flush=True)
+            time.sleep(2)
+        with _sim_lock:                         # exit under the lock so sim_start can't miss us leaving
+            if not sim_active():
+                _sim.update({"phase": "idle", "show": None})
+                _sim_thread = None
+                return
+        play = False
+
+
+def sim_stop():
+    with _ui_lock:
+        if (_ui.get("fx") or {}).get("name") == SIMON_NAME:
+            _ui.update({"sceneName": None, "panels": {}, "message": None, "fx": None})
+            _save_json(UI_FILE, _ui)
+    broadcast_state()
+
+
+def sim_run(play):
+    with _state_lock:
+        st = _state
+    if not st:
+        time.sleep(1)
+        return
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        sim_stop()                              # panels are off: never switch them on by ourselves
+        return
+    board = simon.Board(st)
+    best = sim_best()
+
+    def status(**kw):
+        with _sim_lock:
+            _sim["id"] += 1
+            for k in ("show", "over"):          # tag new animations so each page plays them once
+                if kw.get(k):
+                    kw[k] = dict(kw[k], id=_sim["id"])
+            _sim.update(kw)
+        broadcast_state()
+
+    def send(body):
+        if not sim_active():                    # another scene was picked: don't paint over it
+            return False
+        code, _ = write("/effects", {"write": body})
+        if 200 <= code < 300:
+            with _state_lock:                   # we know what the device shows now
+                if _state:
+                    _state["effects"]["select"] = "*Dynamic*"
+                    _state["state"]["colorMode"] = "effect"
+            return True
+        return False
+
+    status(phase="waiting", score=0, best=best, round=0, step=0, newBest=False, show=None, flash=None, over=None,
+           board=board.hexes(), zones={str(p): z for p, z in board.zone.items()},
+           colours={str(z): "#%02x%02x%02x" % c for z, c in board.colour.items()},
+           dirs={str(z): d for z, d in board.direction.items()})
+    send(board.idle_body())
+    game, over_at = simon.Game(board.order), 0.0
+    nxt, action = (time.time() + 1.2, "round") if play else (None, None)
+
+    def new_game():
+        nonlocal game, nxt, action
+        game = simon.Game(board.order)
+        status(phase="ready", score=0, round=0, step=0, newBest=False, show=None, over=None)
+        nxt, action = time.time() + 1.2, "round"
+
+    def game_over():
+        nonlocal best, over_at, nxt
+        new_best = game.score > best
+        if new_best:
+            best = game.score
+            data = _load_json(GAMES_FILE, {})
+            data["simon"] = {"best": best, "at": int(time.time())}
+            _save_json(GAMES_FILE, data)
+        wanted = game.wanted
+        body, secs = board.over_body(wanted, new_best)
+        status(phase="over", score=game.score, best=best, newBest=new_best,
+               over={"wanted": wanted, "newBest": new_best, "seconds": secs})
+        send(body)
+        over_at, nxt = time.time(), None
+
+    while sim_active():
+        with _state_lock:
+            on = ((_state or {}).get("state") or {}).get("on", {}).get("value", True)
+        if not on:                              # switched off at the wall or in the app: game ends
+            sim_stop()
+            return
+        wait = 1.0 if nxt is None else max(0.02, min(1.0, nxt - time.time()))
+        try:
+            kind, arg = _sim_q.get(timeout=wait)
+        except queue.Empty:
+            kind, arg = None, None
+        if not sim_active():
+            return
+        now = time.time()
+        if kind == "new":
+            new_game()
+        elif kind == "resync":
+            send(board.idle_body(fade=2))
+        elif kind in ("tap", "swipe"):
+            z = board.zone_of(arg) if kind == "tap" else board.zone_for(arg)
+            if z is None:
+                continue
+            with _sim_lock:
+                phase = _sim["phase"]
+            if phase in ("over", "waiting"):
+                if now - over_at > 1.5:         # swipe on the wall to play (again)
+                    new_game()
+                continue
+            if phase != "input":
+                continue                        # watching: taps don't count yet
+            result = game.press(z)
+            if result == "fail":
+                game_over()
+                continue
+            with _sim_lock:
+                flash = {"zone": z, "id": _sim["id"] + 1}
+            if result == "round":
+                status(phase="good", score=game.score, step=game.step, flash=flash)
+                nxt, action = now + 1.3, "round"
+            else:
+                status(step=game.step, flash=flash)
+                nxt, action = now + simon.INPUT_TIMEOUT, "timeout"
+            if _sim_q.empty():                  # if more taps are queued, skip to the newest
+                send(board.press_body(z))
+        elif nxt is not None and now >= nxt:
+            if action == "round":
+                seq = game.next_round()
+                body, secs = board.show_body(seq)
+                hold, gap = simon.speed(len(seq))
+                if not send(body):
+                    game.seq.pop()
+                    nxt = time.time() + 2       # breaker/HTTP error: try the round again shortly
+                    continue
+                status(phase="show", round=len(seq), step=0,
+                       show={"seq": seq, "hold": hold, "gap": gap, "lead": simon.LEAD})
+                nxt, action = time.time() + secs + 0.2, "input"
+            elif action == "input":
+                status(phase="input")
+                nxt, action = now + simon.INPUT_TIMEOUT, "timeout"
+            elif action == "timeout":
+                game.time_out()
+                game_over()
+
+
+# ---------------------------------------------------------------- debug mode
+# Swipe down, up, down on the wall (or PUT /api/debug {"action":"enter"}): whatever is playing
+# stops and the wall becomes a remote. Left/right step through the favourites (or every scene),
+# up switches Favourites/All, down leaves debug mode with the chosen scene playing for real.
+# _ui.fx = {name: "debug_mode", list, key} while it's on. Each scene is shown as one custom
+# animation with the four button panels lit (remote.preview); one worker writes them, and a
+# burst of swipes is summed into a single write.
+DEBUG_NAME = "debug_mode"
+_dbg = {"list": "favourites", "index": 0, "count": 0, "key": None, "label": "", "icon": "", "panels": {},
+        "buttons": {}}
+_dbg_lock = threading.Lock()
+_dbg_q = queue.Queue()
+_dbg_thread = None
+_presets = None
+
+
+def presets():
+    """PRESETS/SPEED from the page (read once)."""
+    global _presets
+    if _presets is None:
+        try:
+            with open(os.path.join(HERE, "nanoleaf.html"), encoding="utf-8") as f:
+                _presets = remote.load_presets(f.read())
+        except OSError:
+            _presets = ([], {"medium": [14, 28]})
+    return _presets
+
+
+def dbg_active():
+    with _ui_lock:
+        fx = _ui.get("fx") or {}
+    return fx.get("name") == DEBUG_NAME
+
+
+def dbg_status():
+    with _dbg_lock:
+        out = dict(_dbg)
+    out["active"] = dbg_active()
+    if not out["active"]:
+        out.update({"panels": {}, "count": 0})
+    return out
+
+
+def dbg_enter():
+    """Switch debug mode on (from the swipe pattern or the page)."""
+    with _state_lock:
+        st = _state
+    if not st:
+        return False
+    with _ui_lock:
+        already = (_ui.get("fx") or {}).get("name") == DEBUG_NAME
+        if not already:
+            start_key = remote.current_key(st, _ui, presets()[0], scenes_list())
+            _ui.update({"fx": {"name": DEBUG_NAME, "list": "favourites", "key": start_key}})
+            _save_json(UI_FILE, _ui)
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        write("/state", {"on": {"value": True}})    # the user asked for it at the wall
+        with _state_lock:
+            if _state:
+                _state["state"]["on"]["value"] = True
+    print("[debug] on", flush=True)
+    dbg_start()
+    return True
+
+
+def dbg_start():
+    global _dbg_thread
+    with _dbg_lock:
+        if _dbg_thread is None:
+            while not _dbg_q.empty():
+                _dbg_q.get_nowait()
+            _dbg_thread = threading.Thread(target=dbg_loop, daemon=True)
+            _dbg_thread.start()
+            return
+    _dbg_q.put(("resync", None))
+
+
+def dbg_loop():
+    global _dbg_thread
+    while True:
+        try:
+            dbg_run()
+        except Exception as e:
+            print(f"[debug] {type(e).__name__}: {e}", flush=True)
+            time.sleep(2)
+        with _dbg_lock:
+            if not dbg_active():
+                _dbg["panels"] = {}
+                _dbg_thread = None
+                return
+
+
+def dbg_leave(ui=None, why=""):
+    """Debug mode off. ui: the _ui of the scene now playing (None = just forget debug mode)."""
+    with _ui_lock:
+        if (_ui.get("fx") or {}).get("name") == DEBUG_NAME:
+            _ui.update(ui or {"sceneName": None, "panels": {}, "message": None, "fx": None})
+            _save_json(UI_FILE, _ui)
+    print(f"[debug] off{why}", flush=True)
+    broadcast_state()
+
+
+def dbg_run():
+    with _state_lock:
+        st = _state
+    if not st:
+        time.sleep(1)
+        return
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        dbg_leave(why=" (panels are off)")      # never switch them on by ourselves
+        return
+    pre, speed = presets()
+    try:
+        with open(os.path.join(DATA, "palettes.json")) as f:
+            palettes = json.load(f)
+    except (OSError, ValueError):
+        palettes = {}
+    with _ui_lock:
+        fx = dict(_ui.get("fx") or {})
+    which, key = fx.get("list") or "favourites", fx.get("key")
+
+    def items(w):
+        return remote.entries(st, pre, scenes_list(), favs_list(), w)
+
+    lst = items(which)
+    if not lst and which == "favourites":
+        which, lst = "all", items("all")
+    keys = [e["key"].lower() for e in lst]
+    index = keys.index(key.lower()) if key and key.lower() in keys else 0
+
+    def show():
+        if not lst or not dbg_active():
+            return
+        e = lst[index]
+        body, first = remote.preview(e, st, speed, palettes, which)
+        with _dbg_lock:
+            _dbg.update({"list": which, "index": index, "count": len(lst), "key": e["key"], "label": e["label"],
+                         "icon": e["icon"], "panels": first,
+                         "buttons": {r: str(p) for r, p in remote.buttons(st).items()}})
+        with _ui_lock:
+            if (_ui.get("fx") or {}).get("name") == DEBUG_NAME:
+                _ui["fx"].update({"list": which, "key": e["key"]})
+                _ui["sceneName"] = None
+                _save_json(UI_FILE, _ui)
+        broadcast_state()
+        code, _ = write("/effects", {"write": body})
+        if 200 <= code < 300:
+            with _state_lock:
+                if _state:
+                    _state["effects"]["select"] = "*Dynamic*"
+                    _state["state"]["colorMode"] = "effect"
+
+    show()
+    while dbg_active():
+        with _state_lock:
+            on = ((_state or {}).get("state") or {}).get("on", {}).get("value", True)
+        if not on:
+            dbg_leave(why=" (panels switched off)")
+            return
+        try:
+            kind, arg = _dbg_q.get(timeout=1.0)
+        except queue.Empty:
+            continue
+        step, toggles, leave, resync = 0, 0, False, False
+        while True:                             # sum up everything that queued while we were writing
+            if kind == "step":
+                step += arg
+            elif kind == "toggle":
+                toggles += 1
+            elif kind == "exit":
+                leave = True
+            elif kind == "resync":
+                resync = True
+            try:
+                kind, arg = _dbg_q.get_nowait()
+            except queue.Empty:
+                break
+        if not dbg_active():
+            return
+        if toggles % 2:
+            cur = lst[index]["key"].lower() if lst else None
+            which = "all" if which == "favourites" else "favourites"
+            lst = items(which)
+            if not lst:                         # no favourites yet: stay on All
+                which, lst = "all", items("all")
+            keys = [e["key"].lower() for e in lst]
+            index = keys.index(cur) if cur in keys else 0
+            print(f"[debug] list: {which}", flush=True)
+        if step and lst:
+            index = (index + step) % len(lst)
+        if leave:
+            if lst:
+                path, body, ui = remote.play(lst[index], st, speed)
+                code, _ = write(path, body)
+                if not (200 <= code < 300):         # the controller is sometimes slow to answer: once more
+                    time.sleep(1.5)
+                    code, _ = write(path, body)
+                if not (200 <= code < 300):
+                    # Still nothing: stay in debug mode (its panels stay lit) so it's plain on
+                    # the wall that it didn't take; swiping down again tries again.
+                    print(f"[debug] couldn't play {lst[index]['key']} (HTTP {code}); still in debug mode", flush=True)
+                    continue
+                dbg_leave(ui, f", playing {lst[index]['key']} (HTTP {code})")
+                schedule_refresh(0.5)
+            else:
+                dbg_leave()
+            return
+        if step or toggles % 2 or resync:
+            show()
 
 
 # ---------------------------------------------------------------- reconnect
@@ -685,14 +1224,655 @@ def favs_set(key, on):
     return out
 
 
+def favs_reorder(order):
+    """Put the favourites in a new order (a drag on the page). The keys must be exactly the
+    current ones, in any order and case; returns the new list or None."""
+    if not isinstance(order, list):
+        return None
+    with _favs_lock:
+        cur = {k.lower(): k for k in _favs}
+        new = [cur.get(str(k).lower()) for k in order]
+        if None in new or len(set(k.lower() for k in new)) != len(_favs) or len(new) != len(_favs):
+            return None
+        _favs[:] = new
+        _save_json(FAVS_FILE, _favs)
+        out = list(_favs)
+    broadcast_state()
+    return out
+
+
+# ---------------------------------------------------------------- settings
+# settings.json (data dir): fade (tenths, the crossfade of still scenes), lat/lon (for sunrise/
+# sunset schedules), runToken (the secret in /run/<token> links), pin (salted hash; phones
+# need it, this computer never does), sessions (signed-in phones), restoreBright (after the
+# sleep timer), salt.
+SETTINGS_FILE = os.path.join(DATA, "settings.json")
+_set_lock = threading.Lock()
+_settings = _load_json(SETTINGS_FILE, {})
+if not isinstance(_settings, dict):
+    _settings = {}
+if not _settings.get("runToken"):
+    _settings["runToken"] = secrets.token_urlsafe(9)
+    _save_json(SETTINGS_FILE, _settings)
+DEFAULT_FADE = 8
+
+
+def setting(key, default=None):
+    with _set_lock:
+        return _settings.get(key, default)
+
+
+def set_settings(**kw):
+    with _set_lock:
+        for k, v in kw.items():
+            if v is None:
+                _settings.pop(k, None)
+            else:
+                _settings[k] = v
+        _save_json(SETTINGS_FILE, _settings)
+
+
+def fade():
+    try:
+        return max(1, min(600, int(setting("fade", DEFAULT_FADE))))
+    except (TypeError, ValueError):
+        return DEFAULT_FADE
+
+
+def location():
+    lat, lon = setting("lat"), setting("lon")
+    return (lat, lon) if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) else (None, None)
+
+
+def settings_public():
+    lat, lon = location()
+    return {"fade": fade(), "lat": lat, "lon": lon, "pin": bool(setting("pin"))}
+
+
+# ---------------------------------------------------------------- PIN lock
+# Off by default. With a PIN set, every request that doesn't come from this computer needs a
+# session cookie (got by typing the PIN on the phone) — except the Home Screen icons and the
+# /run/<token> links, which carry their own secret. Five wrong PINs from one address = a minute's wait.
+PIN_COOKIE = "nm_session"
+_pin_fails = {}
+_pin_lock = threading.Lock()
+
+
+def _pin_hash(pin):
+    salt = setting("salt")
+    if not salt:
+        salt = secrets.token_hex(8)
+        set_settings(salt=salt)
+    return hashlib.sha256((salt + ":" + str(pin)).encode()).hexdigest()
+
+
+def pin_check(ip, pin):
+    """(ok, wait seconds)."""
+    now = time.time()
+    with _pin_lock:
+        n, until = _pin_fails.get(ip, (0, 0))
+        if now < until:
+            return False, int(until - now) + 1
+    ok = bool(setting("pin")) and hmac.compare_digest(_pin_hash(pin), setting("pin"))
+    with _pin_lock:
+        if ok:
+            _pin_fails.pop(ip, None)
+            return True, 0
+        n += 1
+        _pin_fails[ip] = (0, now + 60) if n >= 5 else (n, 0)
+        return False, 60 if n >= 5 else 0
+
+
+def pin_session_new():
+    tok = secrets.token_urlsafe(24)
+    with _set_lock:
+        s = [t for t in _settings.get("sessions") or [] if isinstance(t, str)][-29:]
+        s.append(tok)
+        _settings["sessions"] = s
+        _save_json(SETTINGS_FILE, _settings)
+    return tok
+
+
+def pin_session_ok(tok):
+    return bool(tok) and any(hmac.compare_digest(tok, t) for t in setting("sessions") or [])
+
+
+PIN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="NanoManager">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="manifest" href="/manifest.webmanifest">
+<title>NanoManager</title><style>
+:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0a0c11;color:#eef1f7;
+font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+form{width:min(320px,calc(100vw - 32px));text-align:center}h1{font-size:20px;margin:0 0 6px}p{color:#8e97ab;margin:0 0 18px;font-size:14px}
+input{width:100%;box-sizing:border-box;font-size:28px;letter-spacing:10px;text-align:center;padding:12px;border-radius:14px;
+border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:inherit;outline:none}
+input:focus{border-color:#7c5cff}button{margin-top:14px;width:100%;padding:13px;border:0;border-radius:14px;font:inherit;font-weight:650;
+background:linear-gradient(135deg,#7c5cff,#00d4ff);color:#fff}#e{color:#ff5d6c;min-height:24px;margin-top:10px;font-size:14px}
+</style></head><body><form id="f"><h1>🔒 NanoManager</h1><p>Type the PIN set on the computer that runs NanoManager.</p>
+<input id="p" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" autofocus aria-label="PIN">
+<button>Unlock</button><div id="e" role="alert"></div></form><script>
+document.getElementById("f").onsubmit=async e=>{e.preventDefault();const p=document.getElementById("p"),m=document.getElementById("e");
+const r=await fetch("/api/pin",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin:p.value})}).catch(()=>null);
+if(r&&r.ok){location.replace("/"+location.hash);return;}const d=r?await r.json().catch(()=>({})):{};
+m.textContent=d.wait?"Too many tries. Wait "+d.wait+" s.":"That's not it.";p.value="";p.focus();};
+</script></body></html>"""
+
+
+# ---------------------------------------------------------------- playing by key
+# The /run links, the schedule and the slideshow play scenes the same way the page does
+# (remote.play), by key: device:<name>, fx:<effect>, mood:<name>, mine:<name>, or just a name.
+def _cur_state():
+    with _state_lock:
+        st = _state
+    if st:
+        return st
+    code, body = read("/")
+    if code != 200:
+        return None
+    try:
+        return json.loads(body)
+    except ValueError:
+        return None
+
+
+def find_entry(st, key):
+    """The scene entry for a key or a plain name (case-insensitive), or None."""
+    key = str(key or "").strip()
+    if key.lower() in ("auto:season", "season", "seasonal"):
+        key = "mood:" + routines.season_mood(datetime.date.today())
+    pre, _ = presets()
+    lst = remote.entries(st, pre, scenes_list(), favs_list(), "all")
+    k = key.lower()
+    for e in lst:
+        if e["key"].lower() == k:
+            return e
+    for e in lst:
+        if e["label"].lower() == k or e["name"].lower() == k:
+            return e
+    return None
+
+
+def _on_body(extra=None):
+    """Switch on, restoring the brightness the sleep timer turned down."""
+    body = {"on": {"value": True}}
+    rb = setting("restoreBright")
+    if rb:
+        body["brightness"] = {"value": int(rb)}
+        set_settings(restoreBright=None)
+    body.update(extra or {})
+    return body
+
+
+def play_entry(e, st, who="run"):
+    """Write entry e to the panels (switching them on first). Returns the HTTP code."""
+    _, speed = presets()
+    path, body, ui = remote.play(e, st, speed, fade=fade())
+    if not (st.get("state") or {}).get("on", {}).get("value", True):
+        write("/state", _on_body())
+    code, _ = write(path, body)
+    if 200 <= code < 300:
+        sc = e.get("scene") or {}
+        if e["kind"] == "mood" and sc.get("bright"):
+            write("/state", {"brightness": {"value": int(sc["bright"])}})
+        with _ui_lock:
+            _ui.update(ui)
+            _save_json(UI_FILE, _ui)
+        print(f"[{who}] playing {e['key']} (HTTP {code})", flush=True)
+        schedule_refresh(0.5)
+        broadcast_state()
+    return code
+
+
+def step_favourite(st, step):
+    """The favourite before/after the one playing (wraps round; all scenes if no favourites)."""
+    pre, _ = presets()
+    lst = remote.entries(st, pre, scenes_list(), favs_list(), "favourites") or \
+        remote.entries(st, pre, scenes_list(), favs_list(), "all")
+    if not lst:
+        return None
+    with _ui_lock:
+        ui = dict(_ui)
+    cur = (remote.current_key(st, ui, pre, scenes_list()) or "").lower()
+    keys = [e["key"].lower() for e in lst]
+    i = keys.index(cur) if cur in keys else (-1 if step > 0 else 0)
+    return lst[(i + step) % len(lst)]
+
+
+# ---------------------------------------------------------------- routines
+# One at a time: sunrise alarm, sleep timer, pomodoro, slideshow (see routines.py). A worker
+# thread owns it; starting another, or stopping, bumps _rt_gen so the old one ends at its next
+# check. The page's own writes stop the ones they'd fight with (rt_user_action).
+_rt = {"kind": None}
+_rt_lock = threading.Lock()
+_rt_gen = 0
+_rt_wake = threading.Event()
+
+
+def rt_status():
+    with _rt_lock:
+        out = dict(_rt)
+    out["active"] = bool(out.get("kind"))
+    out["now"] = time.time()
+    return out
+
+
+def rt_start(kind, opts=None):
+    """Start a routine (replacing any other). Returns (ok, error)."""
+    global _rt_gen
+    if kind not in routines.ROUTINES:
+        return False, "unknown routine"
+    opts = dict(opts or {})
+    st = _cur_state()
+    if not st:
+        return False, "Panels unreachable"
+    try:
+        mins = float(opts.get("minutes") or {"sunrise": 30, "sleep": 30, "pomodoro": 25, "slideshow": 10}[kind])
+    except (TypeError, ValueError):
+        return False, "minutes must be a number"
+    opts["minutes"] = max(0.1, min(240.0, mins))
+    with _rt_lock:
+        _rt_gen += 1
+        gen = _rt_gen
+        _rt.clear()
+        _rt.update({"kind": kind, "started": time.time(), "minutes": opts["minutes"], "phase": "", "label": ""})
+    _rt_wake.set()
+    threading.Thread(target=rt_loop, args=(kind, opts, gen), daemon=True).start()
+    print(f"[routine] {kind} started ({opts['minutes']:g} min)", flush=True)
+    broadcast_state()
+    return True, ""
+
+
+def rt_stop(why=""):
+    global _rt_gen
+    with _rt_lock:
+        was = _rt.get("kind")
+        _rt_gen += 1
+        _rt.clear()
+        _rt["kind"] = None
+    _rt_wake.set()
+    with _ui_lock:
+        if (_ui.get("fx") or {}).get("name") == "pomodoro":
+            _ui["fx"] = None
+            _save_json(UI_FILE, _ui)
+    if was:
+        print(f"[routine] {was} stopped{(' (' + why + ')') if why else ''}", flush=True)
+        broadcast_state()
+
+
+def rt_user_action(what):
+    """Something else is taking over the panels. what: 'off' | 'bright' | 'scene'."""
+    kind = rt_status().get("kind")
+    if not kind:
+        return
+    if what == "off" or (what == "bright" and kind in ("sunrise", "sleep")) or \
+            (what == "scene" and kind in ("sunrise", "pomodoro", "slideshow")):
+        rt_stop("you changed the panels")
+
+
+def _rt_alive(gen):
+    with _rt_lock:
+        return gen == _rt_gen
+
+
+def _rt_sleep(gen, seconds):
+    """Wait, waking early if the routine is replaced. False = stop now."""
+    end = time.time() + seconds
+    while _rt_alive(gen):
+        left = end - time.time()
+        if left <= 0:
+            return True
+        _rt_wake.wait(min(left, 1.0))
+        _rt_wake.clear()
+    return False
+
+
+def _rt_set(gen, **kw):
+    with _rt_lock:
+        if gen == _rt_gen:
+            _rt.update(kw)
+    broadcast_state()
+
+
+def _is_on():
+    with _state_lock:
+        return ((_state or {}).get("state") or {}).get("on", {}).get("value", True)
+
+
+def _patch_state(on=None, brightness=None):
+    """Note what a routine just wrote in the cached state, so its next check doesn't mistake
+    the old values for someone else's change before the device's event re-read arrives."""
+    with _state_lock:
+        s = (_state or {}).get("state")
+        if not s:
+            return
+        if on is not None:
+            s.setdefault("on", {})["value"] = on
+        if brightness is not None:
+            s.setdefault("brightness", {})["value"] = brightness
+
+
+def rt_loop(kind, opts, gen):
+    try:
+        {"sunrise": rt_sunrise, "sleep": rt_sleep, "pomodoro": rt_pomodoro, "slideshow": rt_slideshow}[kind](opts, gen)
+    except Exception as e:
+        print(f"[routine] {kind}: {type(e).__name__}: {e}", flush=True)
+    if _rt_alive(gen):
+        rt_stop("finished")
+
+
+def rt_sunrise(opts, gen):
+    secs = opts["minutes"] * 60
+    steps = int(max(6, min(60, secs // 30)))          # about one write every 30 s
+    dt = secs / steps
+    t0 = time.time()
+    _rt_set(gen, label="Sunrise alarm", phase="rising", ends=t0 + secs)
+    with _ui_lock:
+        _ui.update({"sceneName": None, "panels": {}, "message": None, "fx": None})
+        _save_json(UI_FILE, _ui)
+    write("/state", dict(routines.sunrise_point(0), on={"value": True}))
+    _patch_state(on=True, brightness=1)
+    schedule_refresh(0.5)
+    for k in range(1, steps + 1):
+        if not _rt_sleep(gen, max(0, t0 + (k - 1) * dt + 1 - time.time())):
+            return
+        if k > 1 and not _is_on():
+            rt_stop("panels switched off")
+            return
+        body = routines.sunrise_point(k / steps)
+        body["brightness"]["duration"] = int(max(1, dt - 1))    # the device fades it smoothly
+        write("/state", body)
+        schedule_refresh(0.5)
+        _rt_set(gen, progress=round(k / steps, 3))
+    _rt_sleep(gen, dt)
+
+
+def rt_sleep(opts, gen):
+    secs = opts["minutes"] * 60
+    st = _cur_state() or {}
+    b0 = int(((st.get("state") or {}).get("brightness") or {}).get("value", 50))
+    if not _is_on():
+        rt_stop("panels are already off")
+        return
+    steps = int(max(4, min(60, secs // 30)))
+    dt = secs / steps
+    t0 = time.time()
+    _rt_set(gen, label="Sleep timer", phase="fading", ends=t0 + secs, from_=b0)
+    last = b0
+    for k in range(1, steps + 1):
+        if not _is_on():
+            rt_stop("panels switched off")
+            return
+        with _state_lock:
+            now_b = ((_state or {}).get("state") or {}).get("brightness", {}).get("value", last)
+        if now_b > last + 10:                         # someone turned it up: they're not asleep
+            rt_stop("brightness turned up")
+            return
+        b = max(1, int(round(b0 * (1 - k / steps))))
+        write("/state", {"brightness": {"value": b, "duration": int(max(1, dt - 1))}})
+        _patch_state(brightness=b)
+        last = b
+        _rt_set(gen, progress=round(k / steps, 3))
+        if not _rt_sleep(gen, max(0, t0 + k * dt - time.time())):
+            return
+    write("/state", {"on": {"value": False}})
+    _patch_state(on=False)
+    set_settings(restoreBright=b0)                    # back to normal next time they're switched on
+    schedule_refresh(0.5)
+
+
+def rt_pomodoro(opts, gen):
+    st = _cur_state()
+    work = opts["minutes"] * 60
+    try:
+        brk = max(0.1, min(60.0, float(opts.get("break") or 5))) * 60
+    except (TypeError, ValueError):
+        brk = 300
+    shapes = effects.light_shapes(st)
+    pos = {p["panelId"]: effects.centre(pts) for p, pts in shapes}
+    order = routines.drain_order(pos)
+    rnd = 0
+    if not _is_on():
+        write("/state", {"on": {"value": True}})
+    while _rt_alive(gen):
+        rnd += 1
+        for phase, length in (("work", work), ("break", brk)):
+            t0 = time.time()
+            _rt_set(gen, label="Pomodoro", phase=phase, round=rnd, ends=t0 + length, phaseLength=length)
+            full = routines.pomodoro_map(order, 1.0, phase)
+            chime = routines.chime(full, routines.WORK_C if phase == "work" else routines.BREAK_C)
+            body = effects.body_from(chime)
+            body["loop"] = False
+            write("/effects", {"write": body})
+            shown = None
+            while True:
+                left = 1 - (time.time() - t0) / length
+                if left <= 0:
+                    break
+                cmap = routines.pomodoro_map(order, left, phase)
+                if cmap != shown and (shown is not None or time.time() - t0 > 3):
+                    hexes = {str(k): remote.hexs(v) for k, v in cmap.items()}
+                    with _ui_lock:
+                        _ui.update({"sceneName": "Pomodoro", "panels": hexes, "message": None,
+                                    "fx": {"name": "pomodoro"}})
+                    write("/effects", {"write": remote.static_body(st, cmap, fade=10)})
+                    shown = cmap
+                    broadcast_state()
+                if not _rt_sleep(gen, min(2.0, left * length)):
+                    return
+                if not _is_on():
+                    rt_stop("panels switched off")
+                    return
+
+
+def rt_slideshow(opts, gen):
+    every = opts["minutes"] * 60
+    which = "moods" if opts.get("list") == "moods" else "favourites"
+    k = 0
+    while _rt_alive(gen):
+        st = _cur_state()
+        pre, _ = presets()
+        lst = remote.entries(st, pre, scenes_list(), favs_list(), "favourites") if which == "favourites" else []
+        if not lst:
+            lst = [e for e in remote.entries(st, pre, scenes_list(), favs_list(), "all") if e["kind"] == "mood"]
+        if not lst:
+            rt_stop("nothing to show")
+            return
+        e = lst[k % len(lst)]
+        k += 1
+        _rt_set(gen, label="Slideshow", phase=e["label"], ends=time.time() + every, list=which, index=k, count=len(lst))
+        old = fade()
+        _, speed = presets()
+        path, body, ui = remote.play(e, st, speed, fade=max(old, int(opts.get("fade") or 50)))
+        if not (st.get("state") or {}).get("on", {}).get("value", True):
+            if k > 1:
+                rt_stop("panels switched off")
+                return
+            write("/state", _on_body())
+        write(path, body)
+        with _ui_lock:
+            _ui.update(ui)
+            _save_json(UI_FILE, _ui)
+        schedule_refresh(0.5)
+        played = e["key"].lower()
+        end = time.time() + every
+        while time.time() < end:
+            if not _rt_sleep(gen, min(5.0, end - time.time())):
+                return
+            with _state_lock:
+                st2 = _state
+            with _ui_lock:
+                ui2 = dict(_ui)
+            cur = remote.current_key(st2 or {}, ui2, pre, scenes_list()) if st2 else None
+            if st2 and time.time() - _state_ts < 10 and cur and cur.lower() != played:
+                rt_stop("another scene was picked")
+                return
+
+
+# ---------------------------------------------------------------- schedule
+# schedules.json (data dir): a list of routines.clean_entry() dicts plus "last" (the fire time
+# it last fired for). sched_loop checks every 15 s.
+SCHED_FILE = os.path.join(DATA, "schedules.json")
+_sched_lock = threading.Lock()
+
+
+def sched_list():
+    with _sched_lock:
+        d = _load_json(SCHED_FILE, [])
+    return d if isinstance(d, list) else []
+
+
+def sched_view():
+    lat, lon = location()
+    now = datetime.datetime.now()
+    out = []
+    for e in sched_list():
+        nf = routines.next_fire(e, now, lat, lon)
+        out.append(dict(e, desc=routines.describe(e), next=nf.isoformat() if nf else None))
+    today = datetime.date.today()
+    rise, set_ = routines.sun_times(today, lat, lon) if lat is not None else (None, None)
+    return {"items": out, "lat": lat, "lon": lon,
+            "sunrise": rise.strftime("%H:%M") if rise else None, "sunset": set_.strftime("%H:%M") if set_ else None}
+
+
+def sched_upsert(item):
+    e = routines.clean_entry(item)
+    if not e:
+        return None
+    with _sched_lock:
+        items = _load_json(SCHED_FILE, [])
+        items = items if isinstance(items, list) else []
+        if not e["id"]:
+            e["id"] = secrets.token_hex(4)
+        old = next((x for x in items if x.get("id") == e["id"]), None)
+        if old and old.get("last"):
+            e["last"] = old["last"]
+        items = [x for x in items if x.get("id") != e["id"]] + [e] if not old else \
+            [e if x.get("id") == e["id"] else x for x in items]
+        if len(items) > 50:
+            return None
+        _save_json(SCHED_FILE, items)
+    return sched_view()
+
+
+def sched_delete(sid):
+    with _sched_lock:
+        items = [x for x in _load_json(SCHED_FILE, []) if x.get("id") != sid]
+        _save_json(SCHED_FILE, items)
+    return sched_view()
+
+
+def sched_fire(e):
+    a = e["action"]
+    st = _cur_state()
+    if not st:
+        print(f"[schedule] {routines.describe(e)}: panels unreachable", flush=True)
+        return
+    print(f"[schedule] {routines.describe(e)} -> {a}", flush=True)
+    if a.get("power") == "off":
+        rt_user_action("off")
+        write("/state", {"on": {"value": False}})
+    elif a.get("power") == "on":
+        write("/state", _on_body())
+    elif a.get("routine"):
+        rt_start(a["routine"], {"minutes": a.get("minutes")})
+    elif a.get("key"):
+        ent = find_entry(st, a["key"])
+        if ent:
+            rt_user_action("scene")
+            play_entry(ent, st, who="schedule")
+        else:
+            print(f"[schedule] no scene called {a['key']!r}", flush=True)
+    schedule_refresh(0.5)
+
+
+def sched_loop():
+    while True:
+        try:
+            lat, lon = location()
+            now = datetime.datetime.now()
+            for e in sched_list():
+                t = routines.due(e, now, e.get("last"), lat, lon)
+                if t is None:
+                    continue
+                with _sched_lock:                       # mark first, so a crash can't repeat it
+                    items = _load_json(SCHED_FILE, [])
+                    for x in items:
+                        if x.get("id") == e.get("id"):
+                            x["last"] = t.isoformat()
+                    _save_json(SCHED_FILE, items)
+                sched_fire(e)
+        except Exception as ex:
+            print(f"[schedule] {type(ex).__name__}: {ex}", flush=True)
+        time.sleep(15)
+
+
+# ---------------------------------------------------------------- /run links
+# GET /run/<token>?key=mood:Cozy  (or scene=<name>, power=on|off|toggle, bright=40, next=1,
+# prev=1, routine=sleep&minutes=20, stop=1). For Shortcuts / Siri, NFC tags, Home Screen
+# bookmarks. The token keeps other web pages from switching the lights through your browser.
+def run_action(q):
+    """q: {param: value}. Returns (http code, message)."""
+    st = _cur_state()
+    if not st:
+        return 502, "The panels aren't answering."
+    on = (st.get("state") or {}).get("on", {}).get("value", True)
+    if q.get("stop"):
+        rt_stop("stopped from a link")
+        return 200, "Stopped."
+    if q.get("routine"):
+        ok, err = rt_start(q["routine"], {"minutes": q.get("minutes"), "break": q.get("break"), "list": q.get("list")})
+        return (200, f"{q['routine'].capitalize()} started.") if ok else (400, err)
+    if q.get("power"):
+        p = q["power"].lower()
+        if p == "toggle":                             # a fresh look: two taps can come close together
+            code, body = read("/")
+            if code == 200:
+                on = (json.loads(body).get("state") or {}).get("on", {}).get("value", on)
+        want = (not on) if p == "toggle" else p == "on"
+        if not want:
+            rt_user_action("off")
+        code, _ = write("/state", _on_body() if want else {"on": {"value": False}})
+        if code < 300:
+            _patch_state(on=want)
+        schedule_refresh(0.5)
+        return (code if code >= 300 else 200), ("Panels on." if want else "Panels off.")
+    if q.get("bright"):
+        try:
+            b = max(1, min(100, int(q["bright"])))
+        except ValueError:
+            return 400, "bright must be 1-100"
+        rt_user_action("bright")
+        code, _ = write("/state", {"brightness": {"value": b}})
+        schedule_refresh(0.5)
+        return (code if code >= 300 else 200), f"Brightness {b}%."
+    if q.get("next") or q.get("prev"):
+        e = step_favourite(st, 1 if q.get("next") else -1)
+    else:
+        e = find_entry(st, q.get("key") or q.get("scene") or "")
+    if not e:
+        return 404, "No scene called that."
+    rt_user_action("scene")
+    code = play_entry(e, st)
+    return (200 if 200 <= code < 300 else code), (f"{e['icon']} {e['label']}" if 200 <= code < 300 else "The panels didn't take it.")
+
+
+RUN_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoManager</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0a0c11;color:#eef1f7;
+font:20px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center}p{color:#8e97ab;font-size:14px}</style></head>
+<body><div><div style="font-size:44px">%s</div><div>%s</div><p><a href="/" style="color:#8e97ab">Open NanoManager</a></p></div></body></html>"""
+
+
 # ------------------------------------------------------------------- http
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", headers=None):
         b = body.encode() if isinstance(body, str) else body
         self.send_response(code)
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(b)))
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -708,6 +1888,45 @@ class H(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(n) or b"{}")
         except Exception:
             return None
+
+    def _local(self):
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _cookie(self, name):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name:
+                return v
+        return ""
+
+    def _authed(self):
+        return not setting("pin") or self._local() or pin_session_ok(self._cookie(PIN_COOKIE))
+
+    OPEN_PATHS = ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png", "/manifest.webmanifest",
+                  "/favicon.ico", "/api/pin")
+
+    def _gate(self, path):
+        """True if the request may go on; otherwise answers it (PIN page / 401)."""
+        if self._authed() or path in self.OPEN_PATHS or path.startswith("/mobile/") or path.startswith("/run/"):
+            return True
+        if self.command == "GET" and path in ("/", "/index.html"):
+            self._send(200, PIN_PAGE, "text/html; charset=utf-8")
+        else:
+            self._send(401, json.dumps({"error": "pin", "detail": "Locked: type the PIN first."}))
+        return False
+
+    def _run(self, path, query):
+        tok = path[len("/run/"):].strip("/")
+        if not tok or not hmac.compare_digest(tok, setting("runToken") or ""):
+            self._send(403, RUN_PAGE % ("🔒", "That link isn't valid any more. Copy a new one from NanoManager."),
+                       "text/html; charset=utf-8")
+            return
+        q = {k: v[-1] for k, v in parse_qs(query).items()}
+        code, msg = run_action(q)
+        if q.get("format") == "json" or "application/json" in (self.headers.get("Accept") or ""):
+            self._send(code, json.dumps({"ok": code == 200, "message": msg}))
+        else:
+            self._send(code, RUN_PAGE % ("✓" if code == 200 else "⚠", msg.replace("<", "&lt;")), "text/html; charset=utf-8")
 
     def _events(self):
         q = queue.Queue(maxsize=50)
@@ -738,8 +1957,26 @@ class H(BaseHTTPRequestHandler):
                     _clients.remove(q)
 
     def do_GET(self):
-        path = urlparse(self.path).path
-        if path in ("/", "/index.html"):
+        u = urlparse(self.path)
+        path = u.path
+        if not self._gate(path):
+            return
+        if path.startswith("/run/"):
+            self._run(path, u.query)
+        elif path == "/api/settings":
+            self._send(200, json.dumps(dict(settings_public(), local=self._local(), runToken=setting("runToken"),
+                                            phoneUrl=phone_url())))
+        elif path == "/api/schedule":
+            self._send(200, json.dumps(sched_view()))
+        elif path == "/api/routine":
+            self._send(200, json.dumps(rt_status()))
+        elif path == "/api/qr.svg":
+            text = (parse_qs(u.query).get("text") or [""])[0][:300]
+            try:
+                self._send(200, qr.svg(text), "image/svg+xml")
+            except ValueError as e:
+                self._send(400, json.dumps({"error": str(e)}))
+        elif path in ("/", "/index.html"):
             try:
                 with open(os.path.join(HERE, "nanoleaf.html"), "rb") as f:
                     self._send(200, f.read(), "text/html; charset=utf-8")
@@ -760,7 +1997,9 @@ class H(BaseHTTPRequestHandler):
         elif path == "/api/effects":
             with _state_lock:
                 st = _state
-            self._send(200, json.dumps(effects.catalogue(st) + [REP_CARD]))
+            cat = effects.catalogue(st)
+            first_game = next((i for i, e in enumerate(cat) if e.get("group") == "game"), len(cat))
+            self._send(200, json.dumps(cat[:first_game] + [SIMON_CARD] + cat[first_game:] + [REP_CARD]))
         elif path == "/api/replicate":
             self._send(200, json.dumps({**rep_status(), "w": REP_GRID[0], "h": REP_GRID[1], "every": REP_GAP}))
         elif path == "/api/glyphs":
@@ -796,9 +2035,29 @@ class H(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         path = urlparse(self.path).path
+        if not self._gate(path):
+            return
         payload = self._body()
-        if payload is None:
+        if payload is None or not isinstance(payload, dict):
             self._send(400, json.dumps({"error": "bad json"}))
+            return
+        if path == "/api/pin":
+            self._pin(payload)
+            return
+        if path == "/api/settings":
+            self._settings(payload)
+            return
+        if path == "/api/routine":                  # {"kind": "sunrise|sleep|pomodoro|slideshow", "minutes"...} or {"kind": "stop"}
+            if payload.get("kind") == "stop":
+                rt_stop("stopped on the page")
+                self._send(200, json.dumps(rt_status()))
+                return
+            ok, err = rt_start(payload.get("kind"), payload)
+            self._send(200 if ok else 400, json.dumps(rt_status() if ok else {"error": err}))
+            return
+        if path == "/api/schedule":                 # {"item": {...}} add or change one entry
+            v = sched_upsert(payload.get("item"))
+            self._send(200 if v else 400, json.dumps(v or {"error": "That schedule entry isn't complete."}))
             return
         if path == "/api/scenes":
             items = scenes_upsert(payload)
@@ -806,6 +2065,11 @@ class H(BaseHTTPRequestHandler):
                 self._send(400, json.dumps({"error": "scene needs a name"}))
             else:
                 self._send(200, json.dumps(items))
+            return
+        if path == "/api/favorites" and "order" in payload:     # a drag on the page
+            items = favs_reorder(payload.get("order"))
+            self._send(200 if items is not None else 400,
+                       json.dumps(items if items is not None else {"error": "order must list the current favourites"}))
             return
         if path == "/api/favorites":
             p = payload if isinstance(payload, dict) else {}
@@ -816,10 +2080,46 @@ class H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(items))
             return
         if path == "/api/message":
+            if not payload.get("preview"):
+                rt_user_action("scene")
             self._message(payload)
             return
         if path == "/api/fx":
+            if not payload.get("preview"):
+                rt_user_action("scene")
             self._fx(payload)
+            return
+        if path == "/api/debug":                    # {"action": "enter|prev|next|toggle|exit"}
+            a = (payload if isinstance(payload, dict) else {}).get("action")
+            if a == "enter":
+                rt_user_action("scene")
+                dbg_enter()
+            elif dbg_active() and a in ("prev", "next", "toggle", "exit"):
+                _dbg_q.put({"prev": ("step", -1), "next": ("step", 1), "toggle": ("toggle", None),
+                            "exit": ("exit", None)}[a])
+            self._send(200, json.dumps(dbg_status()))
+            return
+        if path == "/api/touch":                    # {"rotate": degrees} if swipes come out turned
+            p = payload if isinstance(payload, dict) else {}
+            data = _load_json(TOUCH_FILE, {})
+            if p.get("rotate") is None:
+                data.pop("rotate", None)
+            else:
+                data["rotate"] = int(p["rotate"]) % 360
+            _save_json(TOUCH_FILE, data)
+            broadcast_state()
+            self._send(200, json.dumps(touch_status()))
+            return
+        if path == "/api/simon":                    # {"tap": panelId} from the page, or {"action": "new"}
+            p = payload if isinstance(payload, dict) else {}
+            if p.get("action") == "new" and not sim_active():
+                self._fx({"name": SIMON_NAME})
+                return
+            if p.get("action") == "new":
+                sim_start(play=True)
+            elif "tap" in p:
+                sim_tap(p.get("tap"))
+            self._send(200, json.dumps(sim_status()))
             return
         if path == "/api/replicate/frame":         # from the Mac app: a screen thumbnail
             if rep_active():
@@ -841,6 +2141,15 @@ class H(BaseHTTPRequestHandler):
         # The page may attach what it is showing so we can remember it. Stripped
         # before the body goes to the device.
         ui = payload.pop("_ui", None) if isinstance(payload, dict) else None
+        if path in ("/api/state", "/api/effect"):
+            if path == "/api/state" and payload.get("on", {}).get("value") is False:
+                rt_user_action("off")
+            elif path == "/api/state" and set(payload) <= {"brightness"}:
+                rt_user_action("bright")
+            elif path == "/api/effect" or set(payload) & {"hue", "sat", "ct"}:
+                rt_user_action("scene")
+            if path == "/api/state" and payload.get("on", {}).get("value") is True and "brightness" not in payload:
+                payload = _on_body(payload)         # back to the brightness from before the sleep timer
         if path == "/api/state":
             code, body = write("/state", payload)
         elif path == "/api/effect":
@@ -859,10 +2168,66 @@ class H(BaseHTTPRequestHandler):
             schedule_refresh(0.5)   # confirm the real state shortly after
         self._send(code, body)
 
+    def _pin(self, p):
+        """{"pin"} to sign a phone in; {"set"} / {"clear"} only from this computer."""
+        if "set" in p or "clear" in p:
+            if not self._local():
+                self._send(403, json.dumps({"error": "The PIN can only be changed on the computer running NanoManager."}))
+                return
+            if p.get("clear"):
+                set_settings(pin=None, sessions=[])
+            else:
+                pin = str(p.get("set") or "").strip()
+                if not (pin.isdigit() and 4 <= len(pin) <= 12):
+                    self._send(400, json.dumps({"error": "Use 4 to 12 digits."}))
+                    return
+                set_settings(pin=_pin_hash(pin), sessions=[])
+            broadcast_state()
+            self._send(200, json.dumps(settings_public()))
+            return
+        ok, wait = pin_check(self.client_address[0], str(p.get("pin") or ""))
+        if not ok:
+            self._send(429 if wait else 401, json.dumps({"error": "wrong pin", "wait": wait}))
+            return
+        tok = pin_session_new()
+        self._send(200, json.dumps({"ok": True}), headers={
+            "Set-Cookie": f"{PIN_COOKIE}={tok}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly"})
+
+    def _settings(self, p):
+        """{"fade": tenths, "lat": deg, "lon": deg} (null clears the location)."""
+        kw = {}
+        if "fade" in p:
+            try:
+                kw["fade"] = max(1, min(600, int(p["fade"])))
+            except (TypeError, ValueError):
+                self._send(400, json.dumps({"error": "fade must be a number of tenths"}))
+                return
+        if "lat" in p or "lon" in p:
+            try:
+                lat, lon = p.get("lat"), p.get("lon")
+                if lat is None or lon is None or lat == "" or lon == "":
+                    kw.update(lat=None, lon=None)
+                else:
+                    lat, lon = float(lat), float(lon)
+                    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                        raise ValueError
+                    kw.update(lat=round(lat, 4), lon=round(lon, 4))
+            except (TypeError, ValueError):
+                self._send(400, json.dumps({"error": "latitude -90..90, longitude -180..180"}))
+                return
+        if p.get("newRunToken") and self._local():
+            kw["runToken"] = secrets.token_urlsafe(9)
+        set_settings(**kw)
+        broadcast_state()
+        self._send(200, json.dumps(dict(settings_public(), local=self._local(), runToken=setting("runToken"))))
+
     def _fx(self, payload):
         """Play one of the built-in animated effects (or preview its frames)."""
         if payload.get("name") == REP_NAME:
             self._replicate(payload)
+            return
+        if payload.get("name") == SIMON_NAME:
+            self._simon(payload)
             return
         with _state_lock:
             st = _state
@@ -914,6 +2279,29 @@ class H(BaseHTTPRequestHandler):
         schedule_refresh(0.5)
         self._send(200, json.dumps(out))
 
+    def _simon(self, payload):
+        """Start a game of Simon. The worker writes the board and the first round."""
+        out = {"name": SIMON_NAME, "seconds": 0, "frames": []}
+        if payload.get("preview"):
+            self._send(200, json.dumps(out))
+            return
+        with _state_lock:
+            st = _state
+        if not st:
+            self._send(502, json.dumps({"error": "Panels unreachable"}))
+            return
+        if not (st.get("state") or {}).get("on", {}).get("value", True):
+            write("/state", {"on": {"value": True}})
+            with _state_lock:
+                if _state:
+                    _state["state"]["on"]["value"] = True
+        with _ui_lock:
+            _ui.update({"sceneName": SIMON_CARD["label"], "panels": {}, "message": None, "fx": {"name": SIMON_NAME}})
+            _save_json(UI_FILE, _ui)
+        sim_start(play=True)
+        broadcast_state()
+        self._send(200, json.dumps(out))
+
     def _message(self, payload):
         """Spell text on the wall (or just preview it when payload.preview is true).
 
@@ -957,6 +2345,11 @@ class H(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         u = urlparse(self.path)
+        if not self._gate(u.path):
+            return
+        if u.path == "/api/schedule":
+            self._send(200, json.dumps(sched_delete(unquote((parse_qs(u.query).get("id") or [""])[0]))))
+            return
         if u.path == "/api/scenes":
             name = unquote((parse_qs(u.query).get("name") or [""])[0])
             items = scenes_delete(name)
@@ -989,8 +2382,13 @@ if __name__ == "__main__":
           f"breaker after {FAIL_LIMIT} fails ({COOLDOWN}s cooldown)")
     threading.Thread(target=device_event_loop, daemon=True).start()
     threading.Thread(target=poll_loop, daemon=True).start()
+    threading.Thread(target=sched_loop, daemon=True).start()
     if rep_active():
         rep_start()
+    if sim_active():
+        sim_start(play=False)       # board back up (unless the panels are off); swipe to play
+    if dbg_active():
+        dbg_start()                 # back on the scene it was showing (unless the panels are off)
     srv = Server(LISTEN, H)
     try:
         srv.serve_forever()

@@ -21,7 +21,7 @@ PTH="$(ls "$ROOT"/python/python3*._pth)"
 printf '../app\n' >> "$PTH"
 
 echo "• app files"
-cp nanoleaf_server.py nanoleaf.html effects.py message.py replicate.py glyphs.json nl.py "$ROOT/app/"
+cp nanoleaf_server.py nanoleaf.html effects.py message.py replicate.py simon.py remote.py routines.py qr.py glyphs.json nl.py "$ROOT/app/"
 cp -R mobile "$ROOT/app/mobile"
 cp windows/launcher.py "$ROOT/app/"
 cp "windows/Start NanoManager.bat" "windows/Start NanoManager (phone access).bat" windows/README.txt windows/NanoManager.ico LICENSE "$ROOT/"

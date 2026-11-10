@@ -72,7 +72,7 @@ input[type=range]::-webkit-slider-thumb{width:28px;height:28px;margin-top:-10px}
 .tool .btn{flex:1 1 auto;justify-content:center}
 
 /* ---------- tabs become a bottom tab bar ---------- */
-#tabs.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;margin:0;border:0;border-radius:0;
+#tabs.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;margin:0;border:0;border-radius:0;flex-wrap:nowrap;
   border-top:1px solid var(--line);display:flex;gap:0;overflow:visible;
   padding:5px calc(6px + var(--sar)) calc(var(--sab) + 3px) calc(6px + var(--sal));
   background:rgba(12,14,20,.84);-webkit-backdrop-filter:saturate(1.6) blur(22px);backdrop-filter:saturate(1.6) blur(22px)}
@@ -129,3 +129,13 @@ input[type=range]::-webkit-slider-thumb{width:28px;height:28px;margin-top:-10px}
 
 /* Home Screen web app (no pull-to-refresh there): keep the refresh button */
 html:not(.ios) #refresh{display:grid}
+
+/* ---------- light theme (Settings → Theme) ---------- */
+:root[data-theme=light] header{background:rgba(242,244,248,.86)}
+:root[data-theme=light] #tabs.tabbar{background:rgba(242,244,248,.9)}
+:root[data-theme=light] #tabs.tabbar button.on svg{stroke:color-mix(in srgb,var(--a2) 70%,black)}
+.rt-grid{grid-template-columns:1fr}
+.rt-card .field,.sched-add .field{font-size:16px}
+:root[data-theme=light] .hero::after{background:linear-gradient(180deg,rgba(242,244,248,.5),rgba(242,244,248,.68))}
+:root[data-theme=light] .hero .eyebrow,:root[data-theme=light] .hero .meta,:root[data-theme=light] .bright .lbl{color:var(--dim)}
+.brand h1{overflow:hidden;text-overflow:ellipsis}

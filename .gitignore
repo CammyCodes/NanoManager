@@ -4,7 +4,11 @@ token.txt
 device.json
 scenes.json
 favorites.json
+games.json
+touch.json
 ui_state.json
+settings.json
+schedules.json
 palettes.json
 server.log
 # build output

@@ -17,7 +17,7 @@ python3 nanoleaf_server.py        # then open http://127.0.0.1:8765   (Windows: 
 
 Opens <http://127.0.0.1:8765>. Press `Ctrl-C` in the terminal to stop it. To reach it from a
 phone on your Wi-Fi too, start it with `NANOLEAF_LISTEN=0.0.0.0 ./start.sh` (anyone on your Wi-Fi
-could then control the lights: there is no password).
+could then control the lights unless you set a PIN in ⚙ Settings).
 
 The page always shows what the panels are actually doing. It reads the real state when it
 opens, and the server listens to the panels' own event stream, so if you change something
@@ -29,14 +29,23 @@ fallen back to checking every 5 seconds, and **offline** if the panels can't be 
 |---|---|
 | **Now playing** | Name of the scene, whether it's moving or still, brightness slider with quick presets, and **Play** / **Freeze** to switch between the animation and a still version of the same colours. |
 | **The wall** | Your real panel layout in the current colours; hover a panel to see its id. Moving scenes drift gently on the preview, and messages and effects play on it in time with the wall. **Flip view** if it looks upside down (remembered). |
-| **Scenes** | *Favourites*: every scene card (here and under Custom) has a ♡ in its corner — click it and that scene is kept at the top of this tab, in the order you added them; click the pink ♥ to take it off. *On the panels*: the 16 scenes saved on the device. *Effects*: animations built here (Snake, Starlight, Fairy Dust, Ripple, Ripple In, Rain, Wave, Heartbeat) that the panels then play by themselves, plus **Replicate**, which copies your Mac's screen live. *Arcade*: retro games the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles); see [Arcade](#arcade). *Moods*: 27 scenes designed in this page — moving ones (Aurora, Ocean, Sunrise, Lava, Forest, Candlelight, Galaxy, Synthwave, Cyberpunk, Cherry Blossom, Ice, Rainbow, Christmas, Halloween, Love, Barbie) and still pastel/cosy ones (Deep Focus, Cozy, Latte, Fireside, Blush, Lavender, Peach, Mint, Sorbet, Seafoam, Honey). |
+| **Scenes** | *Favourites*: every scene card (here and under Custom) has a ♡ in its corner — click it and that scene is kept at the top of this tab, in the order you added them; click the pink ♥ to take it off. *On the panels*: the 16 scenes saved on the device. *Effects*: animations built here (Snake, Starlight, Fairy Dust, Ripple, Ripple In, Rain, Wave, Heartbeat) that the panels then play by themselves, plus **Replicate**, which copies your Mac's screen live. *Ambient*: slow looks to live with (Fireplace, Storm, Ocean Waves, Northern Lights, Lava Lamp, Night Sky, Breathe 4-7-8, Moon Phase, Colour of the Day, Holiday Countdown); see [Ambient](#ambient). *Arcade*: retro games and screensavers the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles, Game of Life, Breakout, Space Invaders, Flappy, Noughts & Crosses, Lights Out, Maze, Dice, Coin Toss); see [Arcade](#arcade). *Moods*: 30 scenes designed in this page — moving ones (Aurora, Ocean, Sunrise, Lava, Forest, Candlelight, Galaxy, Synthwave, Cyberpunk, Cherry Blossom, Ice, Rainbow, Christmas, Halloween, Love, Barbie, Pet Calm) and still pastel/cosy ones (Deep Focus, Cozy, Latte, Fireside, Blush, Lavender, Peach, Mint, Sorbet, Seafoam, Honey, Focus, Night Feed). Pet Calm and Night Feed also set the brightness (35% and 8%). Drag a favourite to move it (on a phone: press and hold it first). |
 | **Custom** | *My scenes*: the ones you've saved (paintings, messages and your own mixes). *Make your own*: pick up to 7 colours, a motion (Flow, Wheel, Random, Fade, Highlight, or Still) and a speed (Slow 3–6 s, Medium 1.4–2.8 s, Fast 0.4–1 s per change), then **Try it** or **Save**. |
 | **Colour** | One colour on every panel, applied as you pick. Plus a warm-to-cool white slider with presets. |
 | **Paint** | Choose a brush colour, click panels. Changes go to the wall as you go (untick *Live* to batch them and press **Send to panels**). **Undo**, **Fill all**, **Discard edits**, and **Save scene** to keep a painting. |
 | **Message** | Spell something out, e.g. **I ❤ YOU**. The wall shows one character at a time, then loops. Pick letter, heart and background colours and how long each character holds, preview the characters, **Show on panels**, and **Save** it as a scene. See *Spelling messages* below. |
+| **Timers** | Sunrise alarm, sleep timer, Pomodoro and slideshow, plus the **schedule**. See [Timers and the schedule](#timers-and-the-schedule). |
+| **⚙ Settings** | Theme (match the system, dark, light), **crossfade** (how slowly still scenes fade into each other, 0.1–5 s), the phone page's address and a QR code to scan, the **PIN lock** for phones, and ready-made [links for Shortcuts, Siri and NFC tags](#links-for-shortcuts-siri-and-nfc-tags). |
 
-Keyboard: `Space` power, `↑`/`↓` brightness (±5), `1`–`5` switch tabs. The page also
-remembers the last tab you had open.
+**↶ Back** under *Now playing* goes back to the scene before (and the one before that…).
+On a phone, swipe left or right across the wall preview for the next or previous favourite.
+
+Keyboard: `Space` power, `↑`/`↓` brightness (±5), `[` / `]` previous / next favourite, `Z` back,
+`F` favourite what's playing, `P` play, `S` hold still, `1`–`6` switch tabs, `,` settings, `?` the
+list of keys. The page also remembers the last tab you had open.
+
+Links into the page: `http://<computer>:8765/#play=mood:Cozy` plays a scene when the page opens
+(any favourite key, or just its name), `#tab=routines` opens a tab, `#settings` opens Settings.
 
 Notes:
 - The dim triangle on the wall is the **controller** — it has no lights, so it can't be painted.
@@ -103,6 +112,25 @@ They're in `effects.py`; each one gives every panel its own list of keyframes.
 | 🌈 Wave | A rainbow sweeps left to right. |
 | 💓 Heartbeat | The heart from the message beats lub-dub. |
 
+### Ambient
+
+Slow, calm looks, in their own **Ambient** section. Like the effects they're one looping
+animation, so they keep going with the app closed. The last three are worked out from
+today's date when you start them (start them again tomorrow to update).
+
+| Look | What it does |
+|---|---|
+| 🔥 Fireplace | Every panel flickers on its own: bright orange at the bottom of the wall, dim red embers at the top. |
+| ⛈️ Storm | Dark clouds roll left to right; now and then lightning forks through two or three neighbouring panels (never the whole wall). |
+| 🌊 Ocean Waves | Waves roll across the wall: deep blue troughs, teal swells, a pale foam crest. |
+| 🌌 Northern Lights | Green and teal curtains drift across a dark sky, with violet at the top. |
+| 🫠 Lava Lamp | Three warm blobs rise slowly through dark red wax and sink back. |
+| 🌠 Night Sky | Faint stars twinkle slowly on deep blue; once a loop a shooting star crosses the top. |
+| 🫁 Breathe 4-7-8 | A breathing guide: the wall fills from the bottom for 4 s (breathe in), holds for 7 s, and drains from the top for 8 s (breathe out). |
+| 🌙 Moon Phase | A night light shaped like tonight's moon: the lit side of the wall follows the real phase (waxing lights the right, waning the left). At new moon it's almost dark. The card says the phase. |
+| 🗓️ Colour of the Day | One colour per weekday (Monday red, Tuesday orange … Sunday violet), breathing slowly. |
+| 📅 Holiday Countdown | Fills up from the bottom as the next holiday gets closer, counting from the last one (New Year, Valentine's Day, Easter, Halloween, Bonfire Night, Christmas), in that holiday's colours; on the day the whole wall twinkles. The card says how many days are left. |
+
 ### Arcade
 
 Retro games the wall plays by itself, each as one looping round, built from your wall's
@@ -116,6 +144,141 @@ own **Arcade** section on the Scenes tab and can be favourited like any other ca
 | 🏓 Pong | A blue paddle on the left of the wall and a red one on the right, each moving between two spots, and a white ball that speeds up. The paddle flashes pale when it hits; each rally ends with a miss and the wall glows in the scorer's colour. One point each, then it starts again (about 27 s). |
 | 🔴 Simon | The wall splits into four dim zones: green, red, blue and yellow. Simon plays a sequence that grows by one every round and the player repeats it a little quicker; after five rounds the zones spin round in a victory lap (about 31 s). |
 | 🏍️ Light Cycles | Tron: a cyan bike and an orange bike start far apart and race over the wall leaving light trails, each steering for open space. The first one boxed in flares and de-rezzes; the winner's trail glows. Three rounds from different starts (about 16 s). |
+| 🧬 Game of Life | Cells live and die on the panels themselves (neighbours = panels that touch). Panels only have one to three neighbours, so the rules are tuned for that: born next to one or two live panels, survives with exactly two. Newborns are cyan and age to green and blue; when a colony dies out or repeats, a new one starts (about 22 s). |
+| 🟥 Breakout | Rainbow bricks along the top of the wall, a cyan paddle along the bottom. The ball knocks out the first brick in its way and comes back; the paddle slides to meet it. When the wall's cleared the bricks come back (about 20 s). |
+| 👾 Space Invaders | A wave of green invaders across the top pulses as it marches; the cannon at the bottom moves and fires up the wall, invaders flash orange when hit, and red bombs fall and miss (about 13 s). |
+| 🐤 Flappy | A yellow bird on autopilot in a column on the left; green pipes with a gap slide in from the right and it hops up or down to get through. After six pipes it misses one, turns red and drops (about 11 s). Needs a few columns of two or more panels. |
+| ⭕ Noughts & Crosses | Two computer players on nine panels (the hexagons on a 9-hexagon wall). Red plays perfectly; blue sometimes slips up, so you see wins and draws. The other panels glow faintly in the colour of whoever's turn it is; a winning line flashes. Three games. |
+| 💡 Lights Out | The wall solves its own puzzle: pressing a panel flips it and its neighbours. It works out which panels to press (linear algebra over the wall's layout), shows each press in cyan, and every panel ends up off. Three puzzles. |
+| 🌀 Maze | A digger carves a maze through every panel (a random depth-first search, backing up at dead ends), then the route from the green start to the farthest panel lights up gold. |
+| 🎲 Dice | The wall tumbles and lands on a number from 1 to 6, shown as white pips on the little triangles over a dark red die; six rolls. |
+| 🪙 Coin Toss | Gold and silver spin across the wall, slowing down until it lands heads (gold) or tails (silver). |
+
+## Timers and the schedule
+
+The **Timers** tab. One timer runs at a time; it shows under *Now playing* with what's left
+and a **■ Stop** button. The computer running NanoManager runs them, so they keep going with
+the page closed, but the computer has to stay awake.
+
+| Timer | What it does | Stops when |
+|---|---|---|
+| 🌅 Sunrise alarm | Switches the panels on at 1% deep red and over 10–45 minutes brightens through orange and warm white to 100% daylight. | you pick a scene or change the brightness, or switch off |
+| 😴 Sleep timer | Fades whatever's playing down to nothing over 10–60 minutes, then switches the panels off. Next time they're switched on (from the page, a link or the schedule) the brightness goes back to where it was. | you turn the brightness up or switch off |
+| 🍅 Pomodoro | 25 minutes of focus (or 50 or 15) with the wall in tomato red; the panels go dark one by one from the top as time runs out. A soft chime of pulses starts each part, then a 5-minute green break that drains the same way, then the next round. | you pick a scene, or switch off |
+| 🎞️ Slideshow | Plays your favourites (or all the moods) one after another every 2–30 minutes, with a slow 5-second fade between still ones. | you pick something else, or switch off |
+
+**Schedule.** Add entries like *07:00 on weekdays → Sunrise alarm (30 min)*, *sunset − 30 min →
+Fireplace*, or *23:30 every day → Switch off*. An entry can play any scene, mood, effect or
+favourite, switch the panels on or off, start a timer, or play **🍂 Mood of the season**
+(Christmas in December, Halloween late October, Love early February, Ice in the winter,
+Cherry Blossom in spring, Seafoam in summer, Honey in September, Fireside in autumn). Pick the
+days with the chips (or *Every day*, *Weekdays*, *Weekends*); untick **On** to pause an entry.
+Each entry fires once, within five minutes of its time: if the computer was asleep then, it
+doesn't catch up later.
+
+*At sunrise / at sunset* needs the wall's location: type its latitude and longitude (decimal
+degrees, e.g. 51.51 and -0.13 for London) under the schedule. NanoManager works the times out
+itself; nothing is looked up online.
+
+## Links for Shortcuts, Siri and NFC tags
+
+**⚙ Settings → Shortcuts, Siri & NFC tags** lists links like
+`http://192.168.1.20:8765/run/Ab12Cd34Ef56?key=mood:Cozy`. Opening one does the thing straight
+away and shows a ✓ page. Ways to use them:
+
+- **Shortcuts / Siri:** a shortcut with a *Get contents of URL* action (it runs quietly) or *Open
+  URLs*. Name the shortcut "Movie mode" and say "Hey Siri, movie mode".
+- **Coming home:** a Shortcuts *personal automation* (*Arrive* at home) that runs that shortcut.
+- **NFC tags:** write the link to a tag (e.g. with the NFC Tools app); tap the tag with the phone.
+  Or a Shortcuts automation on *NFC* for no browser at all.
+- **Home Screen bookmark:** open the link in Safari, then *Add to Home Screen*.
+
+What a link can say: `key=` any scene key (`mood:Cozy`, `fx:aurora`, `device:Northern Lights`,
+`mine:My painting`, `auto:season`) or `scene=` just a name; `power=on|off|toggle`;
+`bright=1..100`; `next=1` / `prev=1` (favourites); `routine=sunrise|sleep|pomodoro|slideshow`
+with `minutes=`; `stop=1`. Add `format=json` for a JSON answer instead of the page.
+
+The long code in the middle is a secret, so another web page can't switch your lights through
+your browser. Anyone who has a link can use it (even with a PIN set), so keep them to yourself;
+**Make new links** (on the computer) makes new ones and stops the old ones working.
+
+## PIN lock
+
+**⚙ Settings → Lock** on the computer: set a PIN of 4–12 digits and every phone (anything
+that isn't the computer itself) gets a PIN screen first; after the right PIN it stays signed in.
+The computer running NanoManager never asks. Five wrong tries from one phone means a minute's
+wait. Changing or removing the PIN signs every phone out. The PIN can only be set or removed
+on the computer. Links from the section above keep working without it.
+
+### 🎮 Play Simon (a real game, played by swiping on the panels)
+
+**Play Simon**, the first card under Arcade, is a game you play yourself:
+
+1. The wall splits into four dim colour zones: green, red, blue and yellow (the same zones as the Simon demo).
+   Each zone has a direction, roughly where it sits on the wall. On the wall it was made for: **↑ green, → red,
+   ↓ blue, ← yellow**. The app shows the arrows on its picture of the wall and in a legend.
+2. **Watch:** Simon lights a zone. **Copy it** by swiping on the wall in that zone's direction (anywhere on the
+   wall: a short, quick swipe across two panels works best).
+3. Every round Simon replays the whole sequence plus **one new random colour**, and it speeds up as it gets longer.
+4. It goes on until you slip: a wrong direction, or more than 8 seconds without a swipe. The whole wall then
+   **flashes red** three times and lights the zone you should have picked. Beat your best and it celebrates with a
+   flash in all four colours.
+5. The dim board stays up afterwards: **swipe on the wall to play again**, so you don't need the phone or computer
+   in your hand.
+
+While a game is on, the Now Playing card shows your **Score** (rounds completed) and your **Best**, which is saved
+(`games.json` in the data folder) and kept across restarts and updates. The Arcade heading shows your best too.
+You can also play in the app (or on your phone): click or tap the zones on the wall picture. **↻ New game** starts
+again from round 1, and picking any other scene ends the game.
+
+**Why swipes and not taps?** The panels' local API never reports taps, holds or which panel was touched. That was
+checked on a Shapes wall on firmware 7.1.6, and other people report the same. It only reports swipe *directions*,
+about half a second late. So everything you do on the wall is a swipe.
+
+- Swipes reach NanoManager from the panels over your Wi-Fi, so the computer running NanoManager must be on (the
+  Mac app open, or the Windows launcher running). The TV app doesn't have it.
+- Each round is sent to the controller as **one** animation and each correct swipe as one short flash, all through
+  the usual rate limit.
+- Swipes less than 0.8 s apart count once: the wall often reports a swipe and then a quick "echo" in the opposite
+  direction, and the echo is ignored. Now and then the wall misses a swipe or misreads it; just swipe again.
+- **Swipes coming out the wrong way round?** The app shows the last swipe it received ("Last swipe: ↑"). If that
+  isn't the way you swiped, press **↻ turn them** next to it (each press turns every swipe a quarter turn) until it
+  matches. It's remembered (`touch.json` in the data folder).
+- If swiping also changes the scene or brightness, those are the wall's own *touch actions* set in the Nanoleaf app.
+  NanoManager puts the game board straight back, but turning those actions off in the Nanoleaf app makes it smoother.
+
+### 🛠 Debug mode (a remote control on the wall)
+
+Step through your scenes from the wall itself, without the app:
+
+| On the wall | What it does |
+|---|---|
+| **Swipe down, up, down** (each within 8 s of the last) | Debug mode on: whatever was playing stops |
+| **Swipe right / left** | Next / previous scene |
+| **Swipe up** | Switch between your **Favourites** (the default) and **All** scenes |
+| **Swipe down** | Debug mode off: the scene you're on keeps playing normally, on the whole wall |
+
+While debug mode is on, four panels at the bottom of the wall stay lit whatever scene is showing, as a reminder:
+
+- the little triangle beside the lowest hexagon (white): debug mode is on;
+- that hexagon: **red** while you're stepping through Favourites, **green** for All;
+- the two triangles under it (blue): previous and next.
+
+It starts on the scene that was playing, if it's in the list, or else the first one. With no favourites yet it
+starts on All. Play Simon and Replicate are left out of the list.
+
+The panels' own scenes and the moving moods are drawn by the controller across *every* panel, so they can't keep the
+four lit panels on top of them. In debug mode they show as an animation of their colours. When you switch debug
+mode off, the real scene plays.
+
+The app shows debug mode on its Now Playing card ("Favourites · 2 of 6 · 🐍 Snake") with **◀ Previous**,
+**Next ▶**, **♥ Favourites / ✱ All** and **✓ Done** buttons that do the same as the swipes. Picking any scene in the
+app (or the Nanoleaf app) also ends debug mode. The down-up-down pattern isn't recognised while Play Simon is
+waiting for your move, because those swipes are game moves. If the panels are switched off, debug mode ends
+(and NanoManager never switches them back on by itself).
+
+On another wall the four panels are picked automatically: the lowest-left panel that sticks out, the panel next to
+it, and the two panels nearest that one.
 
 ### 🖥️ Replicate (your screen's mood on the wall)
 
@@ -242,7 +405,7 @@ curl -X PUT http://127.0.0.1:8765/api/message -d '{"text":"YOU","preview":true}'
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | the control page |
-| GET | `/api/state` | snapshot: `online`, `paused`, `pausedFor`, `lastError`, `device` (the device's full `GET /`), `deviceIp`, `reconnect`, `ui` (what the page last wrote), `favorites`, `replicate` (`active`, `capturing`, `error`, `writes`) |
+| GET | `/api/state` | snapshot: `online`, `paused`, `pausedFor`, `lastError`, `device` (the device's full `GET /`), `deviceIp`, `reconnect`, `ui` (what the page last wrote), `favorites`, `replicate` (`active`, `capturing`, `error`, `writes`), `simon` (Play Simon: `active`, `phase`, `score`, `best`, `round`, `step`, zones, directions and board colours), `debug` (debug mode: `active`, `list`, `index`, `count`, `key`, `label`, `panels`), `touch` (last swipe: `dir`, `at`, `n`, `rotate`), `routine` (the running timer: `active`, `kind`, `label`, `phase`, `started`, `ends`, `round`, `now`), `settings` (`fade`, `lat`, `lon`, `pin`) |
 | GET | `/api/events` | server-sent events: the same snapshot on connect and after every change |
 | GET | `/api/health` | fresh check: `online`, `paused`, `pausedFor`, `lastError` |
 | GET | `/api/palettes` | colours + motion type of the 16 device scenes (cached in `palettes.json`) |
@@ -252,10 +415,21 @@ curl -X PUT http://127.0.0.1:8765/api/message -d '{"text":"YOU","preview":true}'
 | PUT | `/api/scenes` | save a scene (`{"name":…, "kind":…}`; same name replaces it) |
 | DELETE | `/api/scenes?name=NAME` | delete a saved scene (and its favourite) |
 | GET | `/api/favorites` | hearted scenes as `kind:name` keys — `device:Northern Lights`, `fx:snake`, `mood:Cozy`, `mine:My painting` — in the order they were added |
-| PUT | `/api/favorites` | `{"key":"mood:Cozy","on":true}` to add, `"on":false` to remove; returns the new list |
+| PUT | `/api/favorites` | `{"key":"mood:Cozy","on":true}` to add, `"on":false` to remove; `{"order":[…]}` puts the same keys in a new order; returns the new list |
+| GET / PUT | `/api/routine` | the running timer; `{"kind":"sunrise","minutes":30}`, `{"kind":"sleep","minutes":20}`, `{"kind":"pomodoro","minutes":25,"break":5}`, `{"kind":"slideshow","minutes":10,"list":"favourites"\|"moods"}`, or `{"kind":"stop"}` |
+| GET | `/api/schedule` | `items` (each with `desc` and `next`), `lat`, `lon`, today's `sunrise` / `sunset` |
+| PUT | `/api/schedule` | `{"item":{"at":"07:00"\|"sunrise"\|"sunset","offset":-30,"days":[0,1,2,3,4],"action":{…},"on":true}}`; `days` 0 = Monday; `action` is `{"key":"mood:Cozy"}`, `{"power":"on"\|"off"}` or `{"routine":"sleep","minutes":30}`; with an `id` it replaces that entry |
+| DELETE | `/api/schedule?id=ID` | remove a schedule entry |
+| GET / PUT | `/api/settings` | `fade` (tenths of a second), `lat`, `lon`; GET also answers `local`, `runToken`, `phoneUrl` |
+| PUT | `/api/pin` | `{"pin":"1234"}` signs a phone in (sets a cookie); `{"set":"1234"}` / `{"clear":true}` only from the computer itself |
+| GET | `/api/qr.svg?text=…` | a QR code (SVG) for up to 213 bytes of text |
+| GET | `/run/<token>?…` | the Shortcuts / NFC links (see [above](#links-for-shortcuts-siri-and-nfc-tags)) |
 | PUT | `/api/state` | passed to the device's `/state` |
 | PUT | `/api/effect` | passed to the device's `/effects` |
-| PUT | `/api/fx` | play an effect: `{"name":"snake"}`; add `"preview":true` to get its frames without sending. `{"name":"replicate"}` starts Replicate |
+| PUT | `/api/fx` | play an effect: `{"name":"snake"}`; add `"preview":true` to get its frames without sending. `{"name":"replicate"}` starts Replicate, `{"name":"simon_play"}` starts a game of Simon |
+| PUT | `/api/debug` | debug mode: `{"action":"enter"}`, then `prev`, `next`, `toggle` (Favourites/All), `exit` (play the scene for real); answers the status (also in every snapshot as `debug`) |
+| PUT | `/api/touch` | `{"rotate":90}` turns every swipe by that many degrees (`null` = follow the wall's orientation); the last swipe is in every snapshot as `touch` |
+| PUT | `/api/simon` | Play Simon: `{"tap":51229}` touches a panel (as if on the wall), `{"action":"new"}` starts a new game; answers the game status (also in every snapshot as `simon`: `phase`, `score`, `best`, `round`, `step`, …) |
 | GET | `/api/replicate` | Replicate status plus the thumbnail size the Mac app should capture (`w`, `h`) |
 | PUT | `/api/replicate/frame` | from the Mac app: `{"w","h","px"}` (px = hex RGB, 6 characters a pixel); answers `{"active":…}` |
 | PUT | `/api/replicate/status` | from the Mac app: `{"error":"…"}` when it can't capture (shown on the page) |
@@ -398,13 +572,17 @@ pkill -9 NanoManager
 | `message.py`, `glyphs.json` | The message spelling animation, and which panels light up for each character |
 | `effects.py` | Snake, Starlight, Ripple, Rain, Wave... and the Arcade games, built from your wall's layout |
 | `replicate.py` | Screen-mood mapping for Replicate (the capture itself is in the Mac app) |
+| `simon.py` | Play Simon: the game's rules and the animations it sends (the server runs it) |
+| `remote.py` | Debug mode: which scenes to step through, how each is shown with the four lit panels, and how it's played for real |
+| `routines.py` | Timers and the schedule: sunrise colours, Pomodoro panels, sunrise/sunset times, when an entry fires |
+| `qr.py` | A small QR code maker for the phone page's address |
 | `app/` | The Mac app (Swift) and its build script |
 | `windows/` | The Windows launcher and zip builder |
 | `firetv/` | The Fire TV / Android TV app and its build script |
 | `scripts/` | One-line installers |
 
-Your own data (never committed): `token.txt`/`device.json` (pairing), `scenes.json`, `favorites.json`,
-`ui_state.json`, `palettes.json`, `server.log`. The Mac app keeps them in
+Your own data (never committed): `token.txt`/`device.json` (pairing), `scenes.json`, `favorites.json`, `games.json` (Simon high score), `touch.json` (swipe direction fix-up),
+`ui_state.json`, `palettes.json`, `settings.json` (crossfade, location, the links' secret, the PIN's hash and signed-in phones), `schedules.json`, `server.log`. The Mac app keeps them in
 `~/Library/Application Support/NanoManager`, the Windows launcher in `%APPDATA%\NanoManager`, and
 running from source keeps them next to the script (or wherever `NANOLEAF_DATA_DIR` points).
 

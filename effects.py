@@ -529,11 +529,13 @@ def fx_pong(shapes, adj, o):
     return grid_to_panels(steps, ids)
 
 
-def fx_simon(shapes, adj, o):
-    """Simon. The wall splits into four dim zones; Simon plays a sequence that grows by
-    one every round and the player repeats it, a little quicker. After five rounds the
-    zones spin round in a victory lap."""
-    rnd = random.Random(o.get("seed", 4))
+SIMON_COLOURS = [(0, 220, 40), (255, 20, 20), (30, 70, 255), (255, 200, 0)]   # green, red, blue, yellow
+
+
+def simon_zones(shapes, adj):
+    """Split the wall into (up to) four Simon zones, as far apart as the layout allows.
+    Returns ({panelId: zone}, {zone: rgb}, zones in clockwise order from top-left).
+    Shared by the Simon demo and the playable game (simon.py)."""
     pos = {p["panelId"]: centre(pts) for p, pts in shapes}
     ids = sorted(pos)
     d = {pid: bfs_dist(adj, pid) for pid in ids}
@@ -551,10 +553,19 @@ def fx_simon(shapes, adj, o):
         mx = sum(x for x, _ in m) / len(m); my = sum(y for _, y in m) / len(m)
         return (math.degrees(math.atan2(my - cy, mx - cx)) + 135) % 360
     order = sorted(range(len(seeds)), key=angle)
-    simon = [(0, 220, 40), (255, 20, 20), (30, 70, 255), (255, 200, 0)]   # green, red, blue, yellow
-    colour = {z: simon[k] for k, z in enumerate(order)}
+    colour = {z: SIMON_COLOURS[k] for k, z in enumerate(order)}
+    return zone, colour, order
+
+
+def fx_simon(shapes, adj, o):
+    """Simon. The wall splits into four dim zones; Simon plays a sequence that grows by
+    one every round and the player repeats it, a little quicker. After five rounds the
+    zones spin round in a victory lap."""
+    rnd = random.Random(o.get("seed", 4))
+    zone, colour, order = simon_zones(shapes, adj)
+    ids = sorted(zone)
     rounds = 5
-    seq = [rnd.randrange(len(seeds)) for _ in range(rounds)]
+    seq = [rnd.randrange(len(order)) for _ in range(rounds)]
     events = {z: [] for z in colour}
     t = 8
 
@@ -650,6 +661,760 @@ def fx_cycles(shapes, adj, o):
     return grid_to_panels(steps, ids)
 
 
+# ---------------------------------------------------------------- ambient
+# Calm, slow looks for living with (the "ambient" group). Keyframes are kept sparse so
+# every one stays well under the payload sizes the controller is known to accept.
+NOW = None                      # tests set this (a time.time() value) to freeze "today"
+
+
+def _now():
+    import time
+    return NOW if NOW is not None else time.time()
+
+
+def _today():
+    import datetime
+    return datetime.date.fromtimestamp(_now())
+
+
+def heights(pos):
+    """0 at the lowest panel, 1 at the highest (screen y points down)."""
+    y0 = min(y for _, y in pos.values()); y1 = max(y for _, y in pos.values())
+    return {pid: (y1 - y) / max(1, y1 - y0) for pid, (_, y) in pos.items()}
+
+
+def widths(pos):
+    """0 at the leftmost panel, 1 at the rightmost."""
+    x0 = min(x for x, _ in pos.values()); x1 = max(x for x, _ in pos.values())
+    return {pid: (x - x0) / max(1, x1 - x0) for pid, (x, _) in pos.items()}
+
+
+def fx_fireplace(shapes, adj, o):
+    """A log fire: every panel flickers on its own; the lowest panels burn yellow-orange,
+    the highest are dim red embers."""
+    rnd = random.Random(o.get("seed", 17))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    hi = heights(pos)
+    loop = 60
+    hot, warm, ember = (255, 150, 20), (230, 70, 5), (110, 15, 0)
+    per = {}
+    for pid in pos:
+        h = hi[pid]
+        top = mix(hot, warm, min(1, h * 1.3)) if h < .75 else mix(warm, ember, (h - .75) * 4)
+        low = dim(mix(warm, ember, h), .45)
+        fr, t = [], 0
+        while t < loop:
+            d = min(loop - t, rnd.randint(2, 5))
+            fr.append((mix(low, top, rnd.uniform(.35, 1.0) ** 1.5), d)); t += d
+        per[pid] = fr
+    return per
+
+
+def fx_storm(shapes, adj, o):
+    """A night storm: dim clouds roll over a dark sky and lightning forks through a few
+    neighbouring panels at a time (never the whole wall)."""
+    rnd = random.Random(o.get("seed", 23))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    wx = widths(pos)
+    sky, cloud, bolt = (6, 8, 24), (34, 40, 78), (200, 215, 255)
+    loop = 160
+    events = {pid: [] for pid in ids}
+    t = rnd.randint(10, 25)
+    while t < loop - 20:
+        root = rnd.choice(ids)
+        fork = [root] + rnd.sample(sorted(adj[root]), min(len(adj[root]), rnd.randint(1, 2)))
+        for k, pid in enumerate(fork):
+            events[pid].append((t + k, [(bolt, 1), (dim(bolt, .2), 1), (bolt, 1), (sky, 4)]))
+        t += rnd.randint(25, 45)
+    per = {}
+    for pid in ids:
+        ph = int(wx[pid] * 40)                                      # clouds drift left to right
+        base = [((ph + k) % loop, [(cloud, 20), (sky, 20)]) for k in range(0, loop, 80)]
+        ev = sorted(e for e in events[pid])
+        ev_t = [(s, s + sum(d for _, d in segs)) for s, segs in ev]
+        keep = [b for b in base if all(b[0] + 40 <= s or b[0] >= e for s, e in ev_t) and b[0] + 40 <= loop]
+        per[pid] = events_to_frames(sorted(keep + ev), loop, base=sky)
+    return per
+
+
+def fx_ocean(shapes, adj, o):
+    """Waves roll in across the wall: deep blue troughs, teal swells and a pale foam crest."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    wx, hi = widths(pos), heights(pos)
+    deep, swell, foam = (0, 25, 90), (0, 140, 170), (170, 230, 240)
+    period, dt = 80, 5
+    per = {}
+    for pid in pos:
+        off = wx[pid] * .7 + hi[pid] * .3
+        fr = []
+        for k in range(period // dt):
+            ph = (k * dt / period - off) % 1.0
+            if ph < .55:
+                c = mix(deep, swell, ph / .55)
+            elif ph < .7:
+                c = mix(swell, foam, (ph - .55) / .15)
+            else:
+                c = mix(foam, deep, (ph - .7) / .3)
+            fr.append((c, dt))
+        per[pid] = fr
+    return per
+
+
+def fx_aurora(shapes, adj, o):
+    """Northern lights: green and teal curtains with violet edges drift slowly across a dark sky."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    wx, hi = widths(pos), heights(pos)
+    green, teal, violet, night = (20, 255, 110), (0, 200, 170), (140, 50, 230), (0, 4, 14)
+    period, dt = 140, 7
+    per = {}
+    for pid in pos:
+        x, h = wx[pid], hi[pid]
+        fr = []
+        for k in range(period // dt):
+            a = 2 * math.pi * k * dt / period
+            glow = (.5 + .5 * math.sin(a + x * 5.0)) * (.55 + .45 * math.sin(2 * a - x * 3.0 + 1.3))
+            glow = max(0.0, min(1.0, glow))
+            hue = mix(green, teal, .5 + .5 * math.sin(a + x * 2.0))
+            if h > .6:                                              # violet fringe on top
+                hue = mix(hue, violet, (h - .6) * 2.0)
+            fr.append((mix(night, hue, glow ** 1.4), dt))
+        per[pid] = fr
+    return per
+
+
+def fx_lava(shapes, adj, o):
+    """A lava lamp: slow warm blobs rise up through dark red wax and sink back."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    wx, hi = widths(pos), heights(pos)
+    wax, blob, core = (60, 0, 20), (255, 60, 0), (255, 170, 30)
+    period, dt = 150, 6
+    blobs = [(.15, 0.0), (.5, .35), (.85, .7)]                       # (x, phase)
+    per = {}
+    for pid in pos:
+        fr = []
+        for k in range(period // dt):
+            t = k * dt / period
+            heat = 0.0
+            for bx, ph in blobs:
+                by = .5 - .5 * math.cos(2 * math.pi * (t + ph))     # bottom -> top -> bottom
+                d = math.hypot((wx[pid] - bx) * 1.6, hi[pid] - by)
+                heat = max(heat, max(0.0, 1 - d / .38))
+            c = mix(wax, blob, min(1, heat * 1.4)) if heat < .7 else mix(blob, core, (heat - .7) / .3)
+            fr.append((c, dt))
+        per[pid] = fr
+    return per
+
+
+def fx_nightsky(shapes, adj, o):
+    """A starfield: a deep blue night where faint stars twinkle slowly, and now and then a
+    shooting star streaks across the top of the wall."""
+    rnd = random.Random(o.get("seed", 29))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    night, star, shoot = (2, 4, 22), (150, 170, 220), (230, 235, 255)
+    loop = 240
+    events = {pid: [] for pid in ids}
+    top = rows(pos)[0]
+    path = sorted(top, key=lambda i: pos[i][0])
+    st = 150
+    for k, pid in enumerate(path):                                  # the shooting star, left to right
+        events[pid].append((st + k, [(shoot, 1), (dim(shoot, .3), 2), (night, 4)]))
+    for pid in ids:
+        t = rnd.randint(0, 60)
+        while t < loop - 40:
+            busy = any(s - 30 <= t <= s + 10 for s, _ in events[pid])
+            if not busy:
+                peak = dim(star, rnd.uniform(.35, .8))
+                events[pid].append((t, [(peak, rnd.randint(8, 14)), (peak, rnd.randint(4, 10)), (night, rnd.randint(10, 18))]))
+            t += rnd.randint(40, 90)
+    return {pid: events_to_frames(sorted(ev), loop, base=night) for pid, ev in events.items()}
+
+
+def fx_breathe(shapes, adj, o):
+    """A 4-7-8 breathing guide: breathe in for 4 s while the wall fills from the bottom,
+    hold for 7 s, breathe out for 8 s while it drains from the top."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    hi = heights(pos)
+    peak, low = hex_rgb(o["colors"][0]), hex_rgb(o["colors"][1])
+    per = {}
+    for pid in pos:
+        h = hi[pid]
+        a = int(round(h * 25))                                      # inhale: 0..40, bottom first
+        b = int(round((1 - h) * 40))                                # exhale: 110..190, top first
+        per[pid] = [(low, a or 1), (peak, 15), (peak, 110 - 15 - (a or 1)), (peak, b or 1),
+                    (low, 30), (low, 80 - 30 - (b or 1))]
+    return per
+
+
+SYNODIC = 29.530588853
+NEW_MOON = 947182440.0          # 2000-01-06 18:14 UTC
+
+
+def moon_phase(ts=None):
+    """(age in days, fraction lit 0..1, name) for a moment (default: now)."""
+    age = ((_now() if ts is None else ts) - NEW_MOON) / 86400.0 % SYNODIC
+    lit = (1 - math.cos(2 * math.pi * age / SYNODIC)) / 2
+    names = ["New moon", "Waxing crescent", "First quarter", "Waxing gibbous",
+             "Full moon", "Waning gibbous", "Last quarter", "Waning crescent"]
+    return age, lit, names[int((age / SYNODIC) * 8 + .5) % 8]
+
+
+def fx_moon(shapes, adj, o):
+    """A night light shaped like tonight's moon: the lit side of the wall follows the real
+    phase (waxing lights the right, waning the left, as seen from the northern hemisphere)."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    wx = widths(pos)
+    age, lit, _ = moon_phase()
+    glow, dark = hex_rgb(o["colors"][0]), hex_rgb(o["colors"][1])
+    waxing = age < SYNODIC / 2
+    per = {}
+    for pid in pos:
+        x = wx[pid] if waxing else 1 - wx[pid]
+        edge = (1 - lit) - x                                        # > 0: in shadow
+        f = 1.0 if edge < -.08 else 0.0 if edge > .08 else (.08 - edge) / .16
+        per[pid] = [(mix(dark, glow, f), 30), (mix(dark, dim(glow, .85), f), 30)]
+    return per
+
+
+def moon_desc(o):
+    _, lit, name = moon_phase()
+    return f"Tonight's moon as a night light: {name.lower()}, {int(round(lit * 100))}% lit."
+
+
+DAY_COLOURS = [("Monday", (255, 40, 40)), ("Tuesday", (255, 130, 0)), ("Wednesday", (255, 210, 0)),
+               ("Thursday", (40, 210, 70)), ("Friday", (0, 150, 255)), ("Saturday", (90, 60, 255)),
+               ("Sunday", (200, 70, 255))]
+
+
+def fx_daycolour(shapes, adj, o):
+    """One rainbow colour for each day of the week (Monday red ... Sunday violet), breathing slowly."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    wx = widths(pos)
+    _, c = DAY_COLOURS[_today().weekday()]
+    per = {}
+    for pid in pos:
+        a = 1 + int(wx[pid] * 28)                                   # 1..29: a slow ripple left to right
+        per[pid] = [(dim(c, .55), a), (c, 30), (dim(c, .55), 30), (dim(c, .55), 30 - a)]
+    return per
+
+
+def daycolour_desc(o):
+    name, _ = DAY_COLOURS[_today().weekday()]
+    return f"One colour for every day of the week. Today is {name}."
+
+
+def easter(year):
+    """Western Easter Sunday (anonymous Gregorian algorithm)."""
+    a = year % 19; b, c = divmod(year, 100); d, e = divmod(b, 4)
+    g = (8 * b + 13) // 25; h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4); l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31; day = (h + l - 7 * m + 114) % 31 + 1
+    return month, day
+
+
+def holidays(year):
+    em, ed = easter(year)
+    return [(1, 1, "New Year", [(255, 200, 40), (120, 130, 160)]),
+            (2, 14, "Valentine's Day", [(255, 20, 60), (255, 120, 170)]),
+            (em, ed, "Easter", [(255, 220, 90), (160, 230, 140), (200, 160, 255)]),
+            (10, 31, "Halloween", [(255, 110, 0), (130, 0, 200)]),
+            (11, 5, "Bonfire Night", [(255, 90, 0), (255, 180, 30)]),
+            (12, 25, "Christmas", [(230, 0, 20), (0, 170, 40)])]
+
+
+def next_holiday(today=None):
+    """(previous date, next date, name, colours) around today. On the day itself prev == next."""
+    import datetime
+    today = today or _today()
+    days = []
+    for y in (today.year - 1, today.year, today.year + 1):
+        for m, d, name, cols in holidays(y):
+            days.append((datetime.date(y, m, d), name, cols))
+    days.sort(key=lambda x: x[0])
+    for k, (day, name, cols) in enumerate(days):
+        if day >= today:
+            prev = day if day == today else days[k - 1][0]
+            return prev, day, name, cols
+    raise ValueError("no holiday found")
+
+
+def fx_countdown(shapes, adj, o):
+    """A countdown bar to the next holiday: the wall fills from the bottom as the day gets
+    closer (counting from the last one) and twinkles in the holiday's colours once it's here."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    hi = heights(pos)
+    today = _today()
+    prev, nxt, name, cols = next_holiday(today)
+    span = max(1, (nxt - prev).days)
+    frac = 1.0 if nxt == today else (today - prev).days / span
+    order = sorted(pos, key=lambda i: (-pos[i][1], pos[i][0]))       # bottom first
+    n = len(order) if nxt == today else min(len(order) - 1, int(frac * len(order)))
+    per = {}
+    for k, pid in enumerate(order):
+        if k < n:
+            a, b = cols[k % len(cols)], cols[(k + 1) % len(cols)]
+            per[pid] = [(a, 25), (mix(a, b, .5), 25)]
+        elif k == n:                                                # the next panel to fill glows softly
+            c = cols[k % len(cols)]
+            per[pid] = [(dim(c, .35), 25), (dim(c, .08), 25)]
+        else:
+            per[pid] = [((6, 6, 10), 50)]
+    return per
+
+
+def countdown_desc(o):
+    today = _today()
+    _, nxt, name, _ = next_holiday(today)
+    left = (nxt - today).days
+    when = "today!" if left == 0 else "tomorrow" if left == 1 else f"in {left} days"
+    return f"Fills up as the next holiday gets closer: {name} is {when}"
+
+
+# ---------------------------------------------------------------- watch-only games
+# More screensavers in the Arcade: they play themselves, nobody has to touch anything.
+def _farthest(ids, pos, n):
+    """n panels spread as far apart as possible (greedy), for dice pips etc."""
+    if not ids:
+        return []
+    pick = [min(ids, key=lambda i: (pos[i][0], pos[i][1]))]
+    while len(pick) < min(n, len(ids)):
+        pick.append(max((i for i in ids if i not in pick),
+                        key=lambda i: (min(math.hypot(pos[i][0] - pos[j][0], pos[i][1] - pos[j][1]) for j in pick), -i)))
+    return pick
+
+
+def fx_life(shapes, adj, o):
+    """Conway's Game of Life on the wall's own panel graph. Panels have only 1-3 neighbours,
+    so the rules are tuned for that (B12/S2): a panel comes alive next to one or two live
+    neighbours and survives with exactly two. Newborns are cyan and age to green and blue.
+    When the colony dies out, freezes or repeats, a new one is seeded."""
+    rnd = random.Random(o.get("seed", 31))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    ages = [(0, 255, 230), (60, 255, 120), (0, 150, 255), (40, 70, 220)]
+    steps, gens, runs = [], 0, 0
+    while gens < 34 and runs < 4:
+        alive = {pid: 0 for pid in rnd.sample(ids, max(3, len(ids) * 2 // 5))}
+        seen, runs = set(), runs + 1
+        while True:
+            steps.append(({pid: ages[min(a, 3)] for pid, a in alive.items()}, 5)); gens += 1
+            key = frozenset(alive)
+            if not alive or key in seen or gens >= 34:
+                break
+            seen.add(key)
+            nxt = {}
+            for pid in ids:
+                n = sum(1 for v in adj[pid] if v in alive)
+                if pid in alive and n == 2:
+                    nxt[pid] = alive[pid] + 1
+                elif pid not in alive and n in (1, 2):
+                    nxt[pid] = 0
+            alive = nxt
+        steps.append(({pid: dim(ages[min(a, 3)], .3) for pid, a in alive.items()}, 6))
+        steps.append(({}, 6))
+    return grid_to_panels(steps, ids)
+
+
+def fx_breakout(shapes, adj, o):
+    """Breakout: a row of rainbow bricks across the top, a paddle along the bottom and a ball
+    that knocks the bricks out one by one. When the wall is cleared the bricks come back."""
+    rnd = random.Random(o.get("seed", 37))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    bands = rows(pos)
+    if len(bands) < 3:
+        bands = [ids[: len(ids) // 3], ids[len(ids) // 3:]]
+    bricks0 = bands[0]
+    spots = sorted(bands[-1], key=lambda i: pos[i][0])
+    rainbow = [hsv(h, 100, 100) for h in range(0, 360, max(1, 360 // max(1, len(bricks0))))]
+    colour = {pid: rainbow[k % len(rainbow)] for k, pid in enumerate(sorted(bricks0, key=lambda i: pos[i][0]))}
+    paddle_c, ball_c = (0, 200, 255), (255, 255, 200)
+    bricks, steps = set(bricks0), []
+    paddle = spots[len(spots) // 2]
+
+    def frame(ball, t, extra=None):
+        cmap = {pid: colour[pid] for pid in bricks}
+        cmap[paddle] = paddle_c
+        if ball is not None:
+            cmap[ball] = ball_c
+        cmap.update(extra or {})
+        steps.append((cmap, t))
+
+    frame(None, 8)
+    ball = paddle
+    while bricks:
+        goal = rnd.choice(sorted(bricks))
+        path = bfs_path(adj, ball, goal)[1:]
+        hit = next((p for p in path if p in bricks), goal)             # the first brick in the way
+        path = path[:path.index(hit) + 1]
+        for p in path[:-1]:
+            frame(p, 2)
+        frame(None, 1, {hit: (255, 255, 255)})                       # only the brick flashes
+        bricks.discard(hit)
+        frame(path[-2] if len(path) > 1 else None, 2)
+        back = rnd.choice(spots)
+        route = bfs_path(adj, path[-2] if len(path) > 1 else hit, back)[1:]
+        for k, p in enumerate(route):
+            if k == len(route) // 2:
+                paddle = back                                         # slides over to meet it
+            frame(p if p != back else None, 2)
+        paddle, ball = back, back
+        frame(None, 2, {back: (200, 250, 255)})
+    frame(None, 10)
+    for pid in sorted(bricks0, key=lambda i: pos[i][0]):              # bricks come back
+        bricks.add(pid); frame(None, 1)
+    frame(None, 6)
+    return grid_to_panels(steps, ids)
+
+
+def fx_dice(shapes, adj, o):
+    """A dice roller: the wall tumbles, then settles with the pips lit on the little
+    triangles (any panels on walls without them) over a dark red die. Rolls every few seconds."""
+    rnd = random.Random(o.get("seed", 41))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    tri = [p["panelId"] for p, _ in shapes if p["shapeType"] in (8, 9)]
+    pip_pool = tri if len(tri) >= 6 else ids
+    face, pip = (90, 0, 10), (255, 245, 230)
+    rolls = rnd.sample(range(1, 7), 6)
+    steps = []
+    for n in rolls:
+        for d in (1, 1, 1, 2, 2, 3):                                 # tumble, slowing down
+            lit = set(rnd.sample(pip_pool, rnd.randint(1, 6)))
+            steps.append(({pid: pip if pid in lit else dim(face, .6) for pid in ids}, d))
+        sub = [i for i in pip_pool]
+        lit = set(_farthest(sub, pos, n))
+        steps.append(({pid: pip if pid in lit else face for pid in ids}, 3))
+        steps.append(({pid: pip if pid in lit else face for pid in ids}, 25))
+    return grid_to_panels(steps, ids)
+
+
+def fx_coin(shapes, adj, o):
+    """A coin toss: gold and silver sweep across the wall as the coin spins, slower and
+    slower, until it lands heads (gold) or tails (silver) and rests there."""
+    rnd = random.Random(o.get("seed", 43))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    wx = widths(pos)
+    gold, silver = (255, 180, 0), (110, 125, 150)
+    steps, side = [], 0
+    for toss in range(3):
+        land = rnd.randrange(2)
+        spins = 6 if (side + 6) % 2 == land else 7
+        for k in range(spins):
+            nxt = 1 - side
+            if k < spins - 2:                                        # fast: the whole coin flips
+                steps.append(({pid: (gold, silver)[nxt] for pid in ids}, 1 if k < 3 else 2))
+            else:                                                    # slowing down: the flip sweeps across
+                for edge in (.5, 1.01):
+                    steps.append(({pid: (gold, silver)[nxt if wx[pid] < edge else side] for pid in ids}, 2))
+            side = nxt
+        steps.append(({pid: (gold, silver)[side] for pid in ids}, 25))
+        steps.append(({pid: dim((gold, silver)[side], .25) for pid in ids}, 6))
+    return grid_to_panels(steps, ids)
+
+
+TTT_LINES = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]
+
+
+def _ttt_winner(b):
+    for a, c, d in TTT_LINES:
+        if b[a] and b[a] == b[c] == b[d]:
+            return b[a], (a, c, d)
+    return None, None
+
+
+def _ttt_best(b, me):
+    """Perfect play: (score, move) for player me ('X' or 'O') by minimax."""
+    w, _ = _ttt_winner(b)
+    if w:
+        return (1 if w == me else -1), None
+    free = [i for i in range(9) if not b[i]]
+    if not free:
+        return 0, None
+    best = (-2, None)
+    for i in free:
+        b[i] = me
+        s = -_ttt_best(b, "O" if me == "X" else "X")[0]
+        b[i] = None
+        if s > best[0]:
+            best = (s, i)
+    return best
+
+
+def fx_tictactoe(shapes, adj, o):
+    """Noughts and crosses between two computer players on nine panels (the hexagons
+    where there are nine). Red plays perfectly; blue now and then slips up. Winning lines flash."""
+    rnd = random.Random(o.get("seed", 47))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    hexes = [p["panelId"] for p, _ in shapes if p["shapeType"] in (7, 15)]
+    cx = sum(x for x, _ in pos.values()) / len(pos); cy = sum(y for _, y in pos.values()) / len(pos)
+    pool = hexes if len(hexes) >= 9 else ids
+    cells = sorted(sorted(pool, key=lambda i: (pos[i][0] - cx) ** 2 + (pos[i][1] - cy) ** 2)[:9],
+                   key=lambda i: (round(pos[i][1] / 60), pos[i][0]))
+    others = [i for i in ids if i not in cells]
+    col = {"X": (255, 30, 30), "O": (30, 90, 255)}
+    empty = (14, 14, 20)
+    steps = []
+
+    def frame(b, turn, t, extra=None):
+        cmap = {cells[k]: col[b[k]] if b[k] else empty for k in range(9)}
+        for pid in others:
+            cmap[pid] = dim(col[turn], .12) if turn else OFF
+        cmap.update(extra or {})
+        steps.append((cmap, t))
+
+    for game in range(3):
+        b, turn = [None] * 9, "X" if game % 2 == 0 else "O"
+        frame(b, turn, 6)
+        while True:
+            free = [i for i in range(9) if not b[i]]
+            if turn == "O" and rnd.random() < .35:
+                mv = rnd.choice(free)
+            elif len(free) == 9:
+                mv = rnd.choice([0, 2, 4, 6, 8])
+            else:
+                mv = _ttt_best(b, turn)[1]
+            b[mv] = turn
+            w, line = _ttt_winner(b)
+            if w or all(b):
+                frame(b, None, 4)
+                if w:
+                    hi = {cells[k]: mix(col[w], (255, 255, 255), .5) for k in line}
+                    for _ in range(3):
+                        frame(b, None, 2, hi); frame(b, None, 2)
+                    frame(b, None, 12, {cells[k]: col[w] for k in line})
+                else:
+                    frame(b, None, 12)
+                break
+            turn = "O" if turn == "X" else "X"
+            frame(b, turn, 7)
+        frame([None] * 9, None, 6)
+    return grid_to_panels(steps, ids)
+
+
+def lights_out_solve(ids, adj, lit):
+    """Which panels to press (each toggles itself and its neighbours) to switch every lit
+    panel off: Gaussian elimination over GF(2). None if the pattern can't be solved."""
+    n = len(ids); idx = {pid: k for k, pid in enumerate(ids)}
+    rows_ = []
+    for i, pid in enumerate(ids):
+        m = 1 << i
+        for v in adj[pid]:
+            m |= 1 << idx[v]
+        rows_.append([m, 1 if pid in lit else 0])                   # row i: which presses toggle panel i
+    piv, r = [], 0
+    for c in range(n):
+        k = next((k for k in range(r, n) if rows_[k][0] >> c & 1), None)
+        if k is None:
+            continue
+        rows_[r], rows_[k] = rows_[k], rows_[r]
+        for k in range(n):
+            if k != r and rows_[k][0] >> c & 1:
+                rows_[k][0] ^= rows_[r][0]; rows_[k][1] ^= rows_[r][1]
+        piv.append(c); r += 1
+    if any(m == 0 and v for m, v in rows_[r:]):
+        return None
+    return [ids[c] for k, c in enumerate(piv) if rows_[k][1]]
+
+
+def fx_lightsout(shapes, adj, o):
+    """Lights Out, solved by the wall itself: pressing a panel flips it and its neighbours.
+    The wall works out the presses (linear algebra) and plays them one by one until every
+    panel is off; then a new puzzle appears."""
+    rnd = random.Random(o.get("seed", 53))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    on_c, off_c, press_c = (255, 190, 50), (6, 8, 26), (0, 230, 255)
+    steps = []
+
+    def frame(lit, t, extra=None):
+        cmap = {pid: on_c if pid in lit else off_c for pid in ids}
+        cmap.update(extra or {})
+        steps.append((cmap, t))
+
+    for puzzle in range(3):
+        lit = set()
+        for pid in rnd.sample(ids, rnd.randint(4, 6)):              # a solvable puzzle: random presses
+            lit ^= {pid} | set(adj[pid])
+        if not lit:
+            continue
+        frame(lit, 6); frame(lit, 12)
+        plan = lights_out_solve(ids, adj, lit) or []
+        plan.sort(key=lambda i: (pos[i][1], pos[i][0]))
+        for pid in plan:
+            frame(lit, 3, {pid: press_c})
+            lit ^= {pid} | set(adj[pid])
+            frame(lit, 4)
+        frame(lit, 3, {pid: (0, 60, 20) for pid in ids})            # solved: a soft green glow
+        frame(lit, 8)
+    return grid_to_panels(steps, ids)
+
+
+def flappy_fits(shapes):
+    """Pipes need columns of two or more panels: the bird's and at least two more."""
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    return sum(1 for c in columns(pos) if len(c) >= 2) >= 3
+
+
+def fx_flappy(shapes, adj, o):
+    """A Flappy-style autopilot: green pipes slide in from the right with a gap, and a yellow
+    bird near the left hops up and down to fly through. After six pipes it misjudges one,
+    turns red and drops, and the flight starts again."""
+    rnd = random.Random(o.get("seed", 59))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    cols = columns(pos)
+    if len(cols) < 4:
+        cols = [[pid] for pid in sorted(ids, key=lambda i: pos[i][0])]
+    tall = [k for k, c in enumerate(cols) if len(c) >= 2]
+    bird_col = tall[0] if tall else 0
+    ys = sorted({round(pos[pid][1]) for pid in cols[bird_col]})
+    pipe_c, bird_c, dead_c = (20, 200, 40), (255, 220, 0), (255, 30, 30)
+    sky = (0, 10, 30)
+
+    def nearest(col, y):
+        return min(cols[col], key=lambda i: abs(pos[i][1] - y))
+
+    steps = []
+    for flight in range(1):
+        pipes = []                                                   # [column index, gap y]
+        bird_y, passed, crash_at = ys[len(ys) // 2], 0, 6
+        spawn = 0
+        steps.append(({nearest(bird_col, bird_y): bird_c}, 6))
+        for _ in range(400):                                         # (it always crashes long before this)
+            if spawn <= 0:
+                pipes.append([len(cols) - 1, rnd.choice(ys)]); spawn = 3
+            spawn -= 1
+            ahead = [p for p in pipes if p[0] >= bird_col]
+            target = ahead[0][1] if ahead else bird_y
+            if passed >= crash_at and ahead and ahead[0][0] <= bird_col + 1:
+                target = bird_y                                       # this time it doesn't flap
+            if target != bird_y:                                      # one hop per step
+                i = ys.index(bird_y); j = ys.index(target)
+                bird_y = ys[i + (1 if j > i else -1)]
+            cmap = {pid: sky for pid in ids}
+            dead = False
+            for c, gy in pipes:
+                if len(cols[c]) >= 2:
+                    gap = nearest(c, gy)
+                    for pid in cols[c]:
+                        if pid != gap:
+                            cmap[pid] = pipe_c
+                    if c == bird_col and nearest(bird_col, bird_y) != gap:
+                        dead = True
+            bird = nearest(bird_col, bird_y)
+            cmap[bird] = dead_c if dead else bird_c
+            steps.append((cmap, 3))
+            if dead:
+                for y in ys[ys.index(bird_y):]:                       # falls
+                    cm = dict(cmap); cm[bird] = sky if cm[bird] == dead_c else cm[bird]
+                    cm[nearest(bird_col, y)] = dead_c
+                    steps.append((cm, 2))
+                steps.append(({pid: sky for pid in ids}, 8))
+                break
+            for p in pipes:
+                if p[0] == bird_col:
+                    passed += 1
+                p[0] -= 1
+            pipes = [p for p in pipes if p[0] >= 0]
+    return grid_to_panels(steps, ids)
+
+
+def fx_maze(shapes, adj, o):
+    """A maze draws itself: a purple digger carves through every panel (a random depth-first
+    search, backing up at dead ends), then the route from start to finish lights up gold."""
+    rnd = random.Random(o.get("seed", 61))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    carved_c, head_c, route_c, start_c = (60, 20, 120), (180, 120, 255), (255, 190, 0), (0, 220, 120)
+    steps = []
+    for run in range(2):
+        start = rnd.choice(ids)
+        carved, stack, parent = {start}, [start], {start: None}
+
+        def frame(t, head=None, route=()):
+            cmap = {pid: carved_c for pid in carved}
+            for pid in route:
+                cmap[pid] = route_c
+            cmap[start] = start_c
+            if head is not None:
+                cmap[head] = head_c
+            steps.append((cmap, t))
+
+        frame(4, start)
+        while stack:
+            u = stack[-1]
+            opts = [v for v in sorted(adj[u]) if v not in carved]
+            if opts:
+                v = rnd.choice(opts)
+                carved.add(v); parent[v] = u; stack.append(v)
+                frame(2, v)
+            else:
+                stack.pop()
+                if stack:
+                    frame(1, stack[-1])
+        d = bfs_dist(adj, start)
+        end = max(ids, key=lambda i: (d.get(i, 0), i))
+        route, p = [], end
+        while p is not None:
+            route.append(p); p = parent[p]
+        route.reverse()
+        for k in range(1, len(route) + 1):
+            frame(2, None, route[:k])
+        frame(15, None, route)
+        steps.append(({}, 8))
+    return grid_to_panels(steps, ids)
+
+
+def fx_invaders(shapes, adj, o):
+    """Space Invaders attract mode: a wave of green invaders across the top pulses as it
+    marches, drops the odd bomb, and the cannon at the bottom picks them off one by one."""
+    rnd = random.Random(o.get("seed", 67))
+    pos = {p["panelId"]: centre(pts) for p, pts in shapes}
+    ids = sorted(pos)
+    bands = rows(pos)
+    if len(bands) < 3:
+        bands = [ids[: len(ids) // 3], ids[len(ids) // 3:]]
+    wave0 = sorted(bands[0], key=lambda i: pos[i][0])
+    spots = sorted(bands[-1], key=lambda i: pos[i][0])
+    inv_a, inv_b, cannon_c, shot_c, bomb_c, boom_c = (40, 255, 60), (10, 140, 30), (0, 200, 255), (255, 255, 160), (255, 40, 40), (255, 140, 0)
+    alive, steps, beat = set(wave0), [], [0]
+    cannon = spots[len(spots) // 2]
+
+    def frame(t, extra=None):
+        beat[0] += 1
+        cmap = {pid: (inv_a if beat[0] % 4 < 2 else inv_b) for pid in alive}
+        cmap[cannon] = cannon_c
+        cmap.update(extra or {})
+        steps.append((cmap, t))
+
+    frame(8)
+    while alive:
+        cannon = rnd.choice(spots)
+        frame(2)
+        if rnd.random() < .4:                                         # a bomb falls and misses
+            src = rnd.choice(sorted(alive))
+            miss = [s for s in spots if s != cannon] or spots
+            for p in bfs_path(adj, src, rnd.choice(miss))[1:]:
+                frame(1, {p: bomb_c})
+        target = rnd.choice(sorted(alive))
+        path = bfs_path(adj, cannon, target)[1:]
+        hit = next((p for p in path if p in alive), target)
+        for p in path[:path.index(hit)]:
+            frame(1, {p: shot_c})
+        alive.discard(hit)
+        frame(2, {hit: boom_c}); frame(2, {hit: dim(boom_c, .3)})
+    frame(10)
+    for pid in wave0:                                                 # the next wave
+        alive.add(pid)
+    frame(6)
+    return grid_to_panels(steps, ids)
+
+
 EFFECTS = {
     "snake":      {"label": "Snake", "icon": "🐍", "fn": fx_snake,
                    "desc": "A snake crawls around the wall eating apples and growing; one round puts an apple on every panel.",
@@ -691,23 +1456,98 @@ EFFECTS = {
     "cycles":     {"label": "Light Cycles", "icon": "🏍️", "fn": fx_cycles, "group": "game",
                    "desc": "Two Tron light cycles race over the wall leaving trails; the first one boxed in de-rezzes.",
                    "colors": ["#00e6ff", "#ff6e00"]},
+    # watch-only screensavers (added 1.3): nobody plays, they just run
+    "life":       {"label": "Game of Life", "icon": "🧬", "fn": fx_life, "group": "game",
+                   "desc": "Cells are born, age and die across the panels; a new colony starts when one dies out or settles.",
+                   "colors": ["#00ffe6", "#3cff78", "#0096ff", "#2846dc"]},
+    "breakout":   {"label": "Breakout", "icon": "🟥", "fn": fx_breakout, "group": "game",
+                   "desc": "A ball knocks out a row of rainbow bricks along the top while the paddle slides to meet it.",
+                   "colors": ["#ff0000", "#ffcc00", "#00ff66", "#00c8ff", "#ffffc8"]},
+    "invaders":   {"label": "Space Invaders", "icon": "👾", "fn": fx_invaders, "group": "game",
+                   "desc": "A wave of invaders marches across the top; the cannon below picks them off while bombs fall.",
+                   "colors": ["#28ff3c", "#00c8ff", "#ff2828", "#ff8c00"]},
+    "flappy":     {"label": "Flappy", "icon": "🐤", "fn": fx_flappy, "group": "game", "fits_fn": flappy_fits,
+                   "desc": "A bird on autopilot hops through the gaps in the pipes, until it misses one.",
+                   "colors": ["#ffdc00", "#14c828", "#000a1e"]},
+    "tictactoe":  {"label": "Noughts & Crosses", "icon": "⭕", "fn": fx_tictactoe, "group": "game", "min_panels": 9,
+                   "desc": "Two computer players take turns on nine panels. Red never loses; blue sometimes slips up.",
+                   "colors": ["#ff1e1e", "#1e5aff", "#0e0e14"]},
+    "lightsout":  {"label": "Lights Out", "icon": "💡", "fn": fx_lightsout, "group": "game", "min_panels": 6,
+                   "desc": "Pressing a panel flips it and its neighbours. The wall works out the solution and plays it.",
+                   "colors": ["#ffbe32", "#00e6ff", "#06081a"]},
+    "maze":       {"label": "Maze", "icon": "🌀", "fn": fx_maze, "group": "game",
+                   "desc": "A maze digs itself through every panel, then the route from start to finish lights up.",
+                   "colors": ["#3c1478", "#b478ff", "#ffbe00", "#00dc78"]},
+    "dice":       {"label": "Dice", "icon": "🎲", "fn": fx_dice, "group": "game", "min_panels": 6,
+                   "desc": "The wall tumbles and lands on a number, shown as pips on the little triangles.",
+                   "colors": ["#5a000a", "#fff5e6"]},
+    "coin":       {"label": "Coin Toss", "icon": "🪙", "fn": fx_coin, "group": "game",
+                   "desc": "Gold and silver spin across the wall, slower and slower, until it lands heads or tails.",
+                   "colors": ["#ffb400", "#6e7d96"]},
+    # ambient (added 1.3): slow looks to live with
+    "fireplace":  {"label": "Fireplace", "icon": "🔥", "fn": fx_fireplace, "group": "ambient",
+                   "desc": "Every panel flickers like a log fire: bright at the bottom, embers at the top.",
+                   "colors": ["#ff9614", "#e64605", "#6e0f00"]},
+    "storm":      {"label": "Storm", "icon": "⛈️", "fn": fx_storm, "group": "ambient",
+                   "desc": "Dark clouds roll over and lightning forks through a few panels at a time.",
+                   "colors": ["#04060e", "#161a30", "#c8d7ff"]},
+    "ocean":      {"label": "Ocean Waves", "icon": "🌊", "fn": fx_ocean, "group": "ambient",
+                   "desc": "Waves roll across the wall: deep blue troughs, teal swells and a pale foam crest.",
+                   "colors": ["#00195a", "#008caa", "#aae6f0"]},
+    "aurora":     {"label": "Northern Lights", "icon": "🌌", "fn": fx_aurora, "group": "ambient",
+                   "desc": "Green and teal curtains with violet edges drift slowly across a dark sky.",
+                   "colors": ["#14ff6e", "#00c8aa", "#8c32e6"]},
+    "lava":       {"label": "Lava Lamp", "icon": "🫠", "fn": fx_lava, "group": "ambient",
+                   "desc": "Warm blobs rise slowly through dark red wax and sink back down.",
+                   "colors": ["#3c0014", "#ff3c00", "#ffaa1e"]},
+    "nightsky":   {"label": "Night Sky", "icon": "🌠", "fn": fx_nightsky, "group": "ambient",
+                   "desc": "Faint stars twinkle on a deep blue night, with the odd shooting star across the top.",
+                   "colors": ["#020416", "#96aadc", "#e6ebff"]},
+    "breathe":    {"label": "Breathe 4-7-8", "icon": "🫁", "fn": fx_breathe, "group": "ambient",
+                   "desc": "A breathing guide: in for 4 s as the wall fills, hold for 7, out for 8 as it drains.",
+                   "colors": ["#40c8ff", "#03101a"]},
+    "moon":       {"label": "Moon Phase", "icon": "🌙", "fn": fx_moon, "group": "ambient", "desc_fn": moon_desc,
+                   "desc": "A night light shaped like tonight's moon.",
+                   "colors": ["#b4aa82", "#020205"]},
+    "daycolour":  {"label": "Colour of the Day", "icon": "🗓️", "fn": fx_daycolour, "group": "ambient",
+                   "desc_fn": daycolour_desc, "desc": "One rainbow colour for every day of the week.",
+                   "colors": ["#ff2828", "#ff8200", "#ffd200", "#28d246", "#0096ff", "#5a3cff", "#c846ff"]},
+    "countdown":  {"label": "Holiday Countdown", "icon": "📅", "fn": fx_countdown, "group": "ambient",
+                   "desc_fn": countdown_desc, "desc": "Fills up as the next holiday gets closer.",
+                   "colors": ["#e60014", "#00aa28", "#ff6e00", "#8200c8"]},
 }
 
 
 def _fits(effect, layout_json):
-    """False only when we can see the layout and it lacks panels the effect needs."""
-    need = effect.get("needs")
-    if not need or not layout_json:
+    """False only when we can see the layout and it lacks panels the effect needs
+    (`needs`: those panel ids; `min_panels`: at least that many light panels;
+    `fits_fn(shapes)`: the game's own test, e.g. Flappy needs columns to put pipes in)."""
+    if not layout_json:
         return True
     try:
-        have = {p["panelId"] for p in layout_json["panelLayout"]["layout"]["positionData"]}
+        pd = layout_json["panelLayout"]["layout"]["positionData"]
     except (KeyError, TypeError):
         return True
-    return set(need) <= have
+    need = effect.get("needs")
+    if need and not set(need) <= {p["panelId"] for p in pd}:
+        return False
+    if len([p for p in pd if p["shapeType"] != CTRL_SHAPE]) < effect.get("min_panels", 1):
+        return False
+    if effect.get("fits_fn"):
+        try:
+            return bool(effect["fits_fn"](light_shapes(layout_json)))
+        except Exception:
+            return False
+    return True
 
 
 def catalogue(layout_json=None):
-    return [{"name": k, "label": v["label"], "icon": v["icon"], "desc": v["desc"], "colors": v["colors"],
+    def desc(v):
+        try:
+            return v["desc_fn"](v) if v.get("desc_fn") else v["desc"]
+        except Exception:
+            return v["desc"]
+    return [{"name": k, "label": v["label"], "icon": v["icon"], "desc": desc(v), "colors": v["colors"],
              "group": v.get("group", "effect")}
             for k, v in EFFECTS.items() if _fits(v, layout_json)]
 
@@ -717,7 +1557,7 @@ def build(name, layout_json):
         raise ValueError(f"No effect called '{name}'. Try: " + ", ".join(EFFECTS))
     e = EFFECTS[name]
     if not _fits(e, layout_json):
-        raise ValueError(f"'{name}' is drawn for one specific wall layout and doesn't fit yours.")
+        raise ValueError(f"'{name}' doesn't fit your wall's layout (it needs a different shape or more panels).")
     shapes = light_shapes(layout_json)
     adj = adjacency(shapes)
     per = e["fn"](shapes, adj, e)
