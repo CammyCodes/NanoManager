@@ -18,7 +18,8 @@
     custom: '<svg viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg>',
     colour: '<svg viewBox="0 0 24 24"><path d="M12 3.2s6.3 6.6 6.3 11.1a6.3 6.3 0 0 1-12.6 0C5.7 9.8 12 3.2 12 3.2z"/></svg>',
     paint: '<svg viewBox="0 0 24 24"><path d="M19.6 4.4a1.9 1.9 0 0 0-2.7 0l-7.6 7.6 2.7 2.7 7.6-7.6a1.9 1.9 0 0 0 0-2.7z"/><path d="M9.3 12a3.3 3.3 0 0 0-3.4 3.3c0 1.8-1.4 3.3-2.4 3.7 1.1.9 2.8 1.3 4.4 1.3a4.3 4.3 0 0 0 4.3-4.4"/></svg>',
-    message: '<svg viewBox="0 0 24 24"><path d="M20 12.2c0 4-3.6 7.1-8 7.1-1.1 0-2.2-.2-3.1-.6L4 20l1.2-3.7C4.4 15.1 4 13.7 4 12.2 4 8.2 7.6 5 12 5s8 3.2 8 7.2z"/></svg>'
+    message: '<svg viewBox="0 0 24 24"><path d="M20 12.2c0 4-3.6 7.1-8 7.1-1.1 0-2.2-.2-3.1-.6L4 20l1.2-3.7C4.4 15.1 4 13.7 4 12.2 4 8.2 7.6 5 12 5s8 3.2 8 7.2z"/></svg>',
+    routines: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4.2l2.6 1.6M9.5 3h5"/></svg>'
   };
   var tabs = $("#tabs");
   if (tabs) {
@@ -32,7 +33,7 @@
   }
 
   function markTab(t) {
-    ["scenes", "custom", "colour", "paint", "message"].forEach(function (k) {
+    ["scenes", "custom", "colour", "paint", "message", "routines"].forEach(function (k) {
       document.documentElement.classList.toggle("tab-" + k, k === t);
     });
   }

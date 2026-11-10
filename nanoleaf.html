@@ -12,6 +12,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<script>
+// light or dark before anything draws (Settings -> Theme; "auto" follows the system)
+(function(){var t="auto";try{t=localStorage.getItem("nl.theme")||"auto";}catch(e){}
+  var light=t==="light"||(t==="auto"&&matchMedia("(prefers-color-scheme: light)").matches);
+  document.documentElement.dataset.theme=light?"light":"dark";})();
+</script>
 <style>
   :root{
     --bg:#0a0c11; --card:rgba(255,255,255,.035); --card2:rgba(255,255,255,.06);
@@ -119,7 +125,7 @@
   .hero .legend{margin-top:10px;font-size:12.5px;color:var(--dim);display:flex;gap:6px 14px;flex-wrap:wrap;align-items:center}
   .hero .legend b{color:var(--txt);font-size:15px}
   .hero .legend .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
-  .hero .legend button{background:none;border:0;color:var(--dim);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
+  .hero .legend button,.linkish{background:none;border:0;color:var(--dim);text-decoration:underline;cursor:pointer;font:inherit;padding:0}
   .hero .score.dbg .btn{align-self:auto}
   #svg .zarrow{fill:#fff;font-weight:800;text-anchor:middle;dominant-baseline:central;pointer-events:none;opacity:.85;
     paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:6px}
@@ -156,6 +162,8 @@
   #stage{width:100%;aspect-ratio:1/.8;border-radius:14px;overflow:hidden;position:relative;
     background:radial-gradient(60% 55% at 50% 45%,rgba(255,255,255,.05),transparent 70%),#0b0e14;border:1px solid var(--line)}
   #stage.paint{cursor:crosshair}
+  #stage{touch-action:pan-y}
+  .scene{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   svg{width:100%;height:100%;display:block}
   .shape{transition:fill 1.3s ease,filter .3s;cursor:pointer;stroke:none}
   /* a thin dark line between panels, drawn above the glow so every panel stays distinct */
@@ -167,9 +175,9 @@
   .skeleton{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);font-size:13px}
 
   /* ---------- tabs ---------- */
-  .tabs{display:flex;gap:4px;padding:4px;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:14px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
+  .tabs{display:flex;flex-wrap:wrap;gap:4px;padding:4px;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:14px;margin-bottom:16px;overflow-x:auto;scrollbar-width:none}
   .tabs::-webkit-scrollbar{display:none}
-  .tabs button{flex:1;border:0;background:transparent;color:var(--dim);padding:9px 12px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;transition:.15s}
+  .tabs button{flex:1 1 auto;border:0;background:transparent;color:var(--dim);padding:9px 10px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;transition:.15s}
   .tabs button:hover{color:var(--txt)}
   .tabs button.on{background:var(--card2);color:var(--txt);box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 4px 14px rgba(0,0,0,.25)}
   .pane{display:none;animation:fade .2s ease}
@@ -260,6 +268,69 @@
     .hero.moving .blob,.icon-btn.spin{animation:none}
     .shape{transition:none}
   }
+
+  /* ---------- routines ---------- */
+  .rt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:9px}
+  .rt-card{border:1px solid var(--line);background:var(--card2);border-radius:13px;padding:11px 12px;display:flex;flex-direction:column;gap:6px}
+  .rt-card .rt-h{font-weight:650;font-size:13.5px}
+  .rt-card .row{gap:6px;flex-wrap:nowrap}
+  .rt-card .field{min-width:0;padding:7px 28px 7px 10px}
+  .rtbox{margin-top:12px;background:rgba(255,255,255,.07);border:1px solid var(--line2);border-radius:12px;padding:8px 12px 10px}
+  .rt-top{display:flex;align-items:center;gap:10px}
+  .rt-top span{color:var(--dim);font-variant-numeric:tabular-nums;font-size:12.5px;flex:1}
+  .rt-bar{height:6px;border-radius:6px;background:rgba(255,255,255,.1);margin-top:8px;overflow:hidden}
+  .rt-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--a1),var(--a2));transition:width .9s linear}
+  .sched-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .sched{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--card2);border-radius:12px;padding:8px 10px}
+  .sched .what{flex:1;min-width:0}
+  .sched .what b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sched .what span{font-size:12px;color:var(--dim)}
+  .sched.off{opacity:.55}
+  .sched-add{display:flex;flex-direction:column;gap:8px;border:1px dashed var(--line2);border-radius:12px;padding:10px}
+  .sched-add .row{flex-wrap:wrap}
+  .days{display:flex;gap:5px;flex-wrap:wrap}
+  .days button{border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .days button.on{background:var(--a1);border-color:transparent;color:#fff}
+  .loc{margin-top:10px}
+  .loc .field{min-width:110px;flex:1}
+  /* ---------- settings dialog ---------- */
+  dialog#settings{border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);color:var(--txt);padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px);box-shadow:0 30px 80px rgba(0,0,0,.55)}
+  dialog#settings::backdrop{background:rgba(0,0,0,.5);backdrop-filter:blur(3px)}
+  .dlg{padding:18px 20px 20px}
+  .dlg-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .dlg-head h2{font-size:17px}
+  #qrImg{border-radius:10px;background:#fff;padding:4px;flex:0 0 auto}
+  .links{display:flex;flex-direction:column;gap:5px;margin-top:8px;max-height:220px;overflow:auto}
+  .links .lk{display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .links .lk span{flex:0 0 150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .links .lk code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:11.5px}
+  .keys{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px 14px;font-size:12.5px;color:var(--dim)}
+  /* ---------- favourites drag ---------- */
+  #favScenes .scene.lifted{transform:scale(1.05);box-shadow:0 14px 30px rgba(0,0,0,.45);z-index:2;border-color:var(--a2);cursor:grabbing}
+  #favScenes.sorting .scene:not(.lifted){transition:transform .15s}
+  /* ---------- light theme (Settings → Theme, or the system setting) ---------- */
+  :root[data-theme=light]{--bg:#f2f4f8;--card:rgba(255,255,255,.72);--card2:#ffffff;--line:rgba(20,28,45,.10);--line2:rgba(20,28,45,.2);
+    --txt:#151a26;--dim:#596274;--mute:#99a1b0;color-scheme:light}
+  :root[data-theme=light] html,:root[data-theme=light]{color-scheme:light}
+  :root[data-theme=light] header{background:rgba(242,244,248,.82)}
+  :root[data-theme=light] #toast{background:#fff;color:var(--txt)}
+  :root[data-theme=light] .switch:not(.on){background:#cdd3de}
+  :root[data-theme=light] .field{background:#fff}
+  :root[data-theme=light] .tabs{background:rgba(20,28,45,.06)}
+  :root[data-theme=light] .tabs button.on{box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 3px 10px rgba(20,28,45,.12)}
+  :root[data-theme=light] .btn:hover:not(:disabled){background:rgba(20,28,45,.05)}
+  :root[data-theme=light] .btn.primary:hover:not(:disabled){background:linear-gradient(135deg,var(--a1),color-mix(in srgb,var(--a1) 60%,var(--a2)))}
+  :root[data-theme=light] input[type=range]::-webkit-slider-runnable-track{background:linear-gradient(90deg,var(--a1) var(--fill,50%),rgba(20,28,45,.12) var(--fill,50%))}
+  :root[data-theme=light] input[type=range].temp::-webkit-slider-runnable-track{background:linear-gradient(90deg,#ff9a3c,#ffd9a8,#f4f4f4,#cfe4ff)}
+  :root[data-theme=light] .chip,:root[data-theme=light] .hero .score>div,:root[data-theme=light] .rtbox{background:rgba(255,255,255,.55)}
+  :root[data-theme=light] .rt-bar{background:rgba(20,28,45,.1)}
+  :root[data-theme=light] .scene:hover{box-shadow:0 8px 20px rgba(20,28,45,.14)}
+  :root[data-theme=light] .kbd{background:rgba(20,28,45,.06)}
+  :root[data-theme=light] .hero .blob{opacity:.35}
+  :root[data-theme=light] .mprev .mw{background:#0b0e14}
+  :root[data-theme=light] .mprev .mw span{color:#c9cfdb}
+  :root[data-theme=light] dialog#settings{box-shadow:0 30px 80px rgba(20,28,45,.3)}
+  :root[data-theme=light] .presets button.on,:root[data-theme=light] .days button.on{color:#fff}
 </style>
 </head>
 <body>
@@ -273,7 +344,8 @@
   </div>
   <div class="conn" id="conn" title="Connection"><i></i><span>connecting</span></div>
   <span class="spacer"></span>
-  <button class="icon-btn" id="refresh" title="Refresh state">↻</button>
+  <button class="icon-btn" id="settingsBtn" title="Settings (,)" aria-label="Settings">⚙</button>
+  <button class="icon-btn" id="refresh" title="Refresh state" aria-label="Refresh">↻</button>
   <div class="switch" id="power" role="switch" aria-checked="false" title="Power" tabindex="0"><div class="knob"></div></div>
 </header>
 <div id="banner"></div>
@@ -312,9 +384,14 @@
         <button class="btn" id="dbgExit" title="Leave debug mode, keep this scene playing (swipe down on the wall)">✓ Done</button>
       </div>
       <div class="legend" id="touchRow" hidden></div>
+      <div class="rtbox" id="rtBox" hidden>
+        <div class="rt-top"><b id="rtLabel">—</b><span id="rtLeft"></span><button class="btn sm" id="rtStop">■ Stop</button></div>
+        <div class="rt-bar"><i id="rtBar"></i></div>
+      </div>
       <div class="actions">
-        <button class="btn" id="playBtn" title="Play the scene's animation">▶ Play</button>
-        <button class="btn" id="freezeBtn" title="Hold the scene's colours still">⏸ Freeze</button>
+        <button class="btn" id="playBtn" title="Play the scene's animation (P)">▶ Play</button>
+        <button class="btn" id="freezeBtn" title="Hold the scene's colours still (S)">⏸ Freeze</button>
+        <button class="btn" id="backBtn" title="Back to the scene before (Z)" disabled>↶ Back</button>
       </div>
       <div class="bright">
         <div class="lbl"><span>Brightness</span><b id="brightVal">—</b></div>
@@ -325,7 +402,7 @@
 
     <div class="card stage-card">
       <div id="stage">
-        <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
+        <svg id="svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Preview of your wall"></svg>
         <div class="skeleton" id="skeleton">Looking for the panels…</div>
       </div>
       <div class="stage-foot">
@@ -345,6 +422,7 @@
         <button data-tab="colour">Colour</button>
         <button data-tab="paint">Paint</button>
         <button data-tab="message">Message</button>
+        <button data-tab="routines">Timers</button>
       </div>
 
       <!-- Scenes -->
@@ -362,7 +440,11 @@
           <div class="grid" id="fxScenes"></div>
         </div>
         <div class="sec">
-          <h3>Arcade <span class="hint">retro games on the wall · <b>Play Simon</b> is a real game you play by swiping on the panels</span> <span class="badge" id="simonBestHint"></span></h3>
+          <h3>Ambient <span class="hint">slow looks to live with</span></h3>
+          <div class="grid" id="ambientScenes"></div>
+        </div>
+        <div class="sec">
+          <h3>Arcade <span class="hint">retro games on the wall · <b>Play Simon</b> is a real game you play by swiping on the panels; the rest play themselves</span> <span class="badge" id="simonBestHint"></span></h3>
           <div class="grid" id="gameScenes"></div>
         </div>
         <div class="sec">
@@ -454,7 +536,6 @@
           <div class="hint" style="margin-top:8px">Saved paintings show up under <b>Custom → My scenes</b>.</div>
         </div>
       </div>
-    </div>
 
       <!-- Message -->
       <div class="pane" data-pane="message">
@@ -489,10 +570,112 @@
           <div class="hint" style="margin-top:8px">The panels play it by themselves and loop until you pick something else. Saved messages appear under <b>Custom → My scenes</b>.</div>
         </div>
       </div>
+
+      <!-- Routines -->
+      <div class="pane" data-pane="routines">
+        <div class="sec">
+          <h3>Start a timer <span class="hint">one at a time</span></h3>
+          <div class="rt-grid">
+            <div class="rt-card">
+              <div class="rt-h">🌅 Sunrise alarm</div>
+              <div class="hint">From a dim red glow to bright daylight.</div>
+              <div class="row"><select class="field" id="rtSunMin" aria-label="Sunrise length"><option value="10">10 min</option><option value="20">20 min</option><option value="30" selected>30 min</option><option value="45">45 min</option></select>
+                <button class="btn" data-rt="sunrise">Start</button></div>
+            </div>
+            <div class="rt-card">
+              <div class="rt-h">😴 Sleep timer</div>
+              <div class="hint">Fades the scene down, then switches off.</div>
+              <div class="row"><select class="field" id="rtSleepMin" aria-label="Sleep timer length"><option value="10">10 min</option><option value="20">20 min</option><option value="30" selected>30 min</option><option value="60">1 hour</option></select>
+                <button class="btn" data-rt="sleep">Start</button></div>
+            </div>
+            <div class="rt-card">
+              <div class="rt-h">🍅 Pomodoro</div>
+              <div class="hint">Panels drain as you work, then a green break.</div>
+              <div class="row"><select class="field" id="rtPomoMin" aria-label="Work and break length"><option value="25/5" selected>25 + 5 min</option><option value="50/10">50 + 10 min</option><option value="15/3">15 + 3 min</option></select>
+                <button class="btn" data-rt="pomodoro">Start</button></div>
+            </div>
+            <div class="rt-card">
+              <div class="rt-h">🎞️ Slideshow</div>
+              <div class="hint">A new scene every few minutes, with slow fades.</div>
+              <div class="row"><select class="field" id="rtShowList" aria-label="What to show"><option value="favourites">Favourites</option><option value="moods">Moods</option></select>
+                <select class="field" id="rtShowMin" aria-label="How often"><option value="2">2 min</option><option value="5">5 min</option><option value="10" selected>10 min</option><option value="30">30 min</option></select>
+                <button class="btn" data-rt="slideshow">Start</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="sec">
+          <h3>Schedule <span class="badge" id="schedSun"></span></h3>
+          <div id="schedList" class="sched-list"></div>
+          <div class="sched-add">
+            <div class="row">
+              <select class="field" id="sAt" aria-label="When" style="min-width:110px;flex:0 0 auto"><option value="time">At a time</option><option value="sunrise">At sunrise</option><option value="sunset">At sunset</option></select>
+              <input class="field" type="time" id="sTime" value="07:00" aria-label="Time" style="flex:0 0 auto;min-width:110px">
+              <select class="field" id="sOffset" aria-label="Before or after" hidden style="flex:0 0 auto;min-width:120px"><option value="-60">1 h before</option><option value="-30">30 min before</option><option value="-15">15 min before</option><option value="0" selected>exactly</option><option value="15">15 min after</option><option value="30">30 min after</option></select>
+            </div>
+            <div class="days" id="sDays" role="group" aria-label="Days"></div>
+            <div class="row">
+              <select class="field" id="sAction" aria-label="What happens"></select>
+              <button class="btn primary" id="sAdd">Add</button>
+            </div>
+          </div>
+          <div class="row loc" id="sLoc">
+            <span class="hint">Sunrise and sunset need your location:</span>
+            <input class="field" id="sLat" placeholder="Latitude e.g. 51.51" inputmode="decimal" aria-label="Latitude">
+            <input class="field" id="sLon" placeholder="Longitude e.g. -0.13" inputmode="decimal" aria-label="Longitude">
+            <button class="btn sm" id="sLocSave">Save</button>
+          </div>
+          <div class="hint" style="margin-top:8px">The computer running NanoManager does the schedule, so it has to be awake (the Mac app keeps it awake while it's open).</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="settings" aria-labelledby="setTitle">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2 id="setTitle">Settings</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+    <div class="sec">
+      <h3>Look</h3>
+      <div class="row"><span class="lbl" style="min-width:110px">Theme</span>
+        <select class="field" id="themeSel" aria-label="Theme"><option value="auto">Match the system</option><option value="dark">Dark</option><option value="light">Light</option></select></div>
+      <div class="row" style="margin-top:8px"><span class="lbl" style="min-width:110px">Crossfade <b id="fadeVal">0.8s</b></span>
+        <input type="range" id="fadeSel" min="1" max="50" value="8" aria-label="Crossfade time for still scenes" style="flex:1;min-width:140px"></div>
+      <div class="hint">How slowly still scenes, paintings and colours fade into each other (also used by the schedule and the /run links).</div>
+    </div>
+    <div class="sec" id="setPhone">
+      <h3>On your phone</h3>
+      <div class="row" style="align-items:flex-start;flex-wrap:nowrap">
+        <img id="qrImg" alt="QR code that opens NanoManager on a phone" width="132" height="132" hidden>
+        <div class="hint" id="qrText">Phones can open this page when the Mac app is running.</div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Lock <span class="badge" id="pinState"></span></h3>
+      <div class="hint" id="pinHint">Anyone on your Wi-Fi can open the phone page. Set a PIN and phones have to type it once; this computer never asks.</div>
+      <div class="row" style="margin-top:8px" id="pinRow">
+        <input class="field" id="pinNew" type="password" inputmode="numeric" maxlength="12" placeholder="New PIN (4-12 digits)" aria-label="New PIN" autocomplete="new-password">
+        <button class="btn" id="pinSet" type="button">Set PIN</button>
+        <button class="btn danger" id="pinClear" type="button" hidden>Remove PIN</button>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>Shortcuts, Siri &amp; NFC tags</h3>
+      <div class="hint">Each link plays a scene when it's opened: put it in a Shortcuts “Open URL” or “Get contents of URL” action (then say the shortcut's name to Siri, or run it from an NFC tag or arriving home), or write it to an NFC tag. Keep them private: anyone with a link can use it.</div>
+      <div class="links" id="runLinks"></div>
+      <div class="row" style="margin-top:8px"><button class="btn sm" id="newToken" type="button" hidden>Make new links (old ones stop working)</button></div>
+    </div>
+    <div class="sec">
+      <h3>Keyboard</h3>
+      <div class="keys">
+        <span><span class="kbd">Space</span> power</span><span><span class="kbd">↑</span><span class="kbd">↓</span> brightness</span>
+        <span><span class="kbd">[</span><span class="kbd">]</span> previous / next favourite</span><span><span class="kbd">Z</span> back to the last scene</span>
+        <span><span class="kbd">F</span> favourite what's playing</span><span><span class="kbd">P</span> play · <span class="kbd">S</span> hold still</span>
+        <span><span class="kbd">1</span>–<span class="kbd">6</span> tabs</span><span><span class="kbd">,</span> settings · <span class="kbd">?</span> this list</span>
+      </div>
+    </div>
+  </form>
+</dialog>
 
 <script>
 /* =================================================================
@@ -504,6 +687,7 @@ const CT_PRESETS=[["Candle",2000],["Warm",2700],["Soft",3500],["Neutral",4500],[
 const BRIGHT_PRESETS=[10,25,50,75,100];
 const SPEED={slow:[30,60],medium:[14,28],fast:[4,10]};    // tenths of a second
 // Designed moods: palette as [hue, sat, bright]. "static" lays the colours out still.
+// Optional bright: the panel brightness (%) the mood sets as well (Night Feed is meant to be dim).
 const PRESETS=[
   {name:"Aurora",icon:"🌌",anim:"flow",speed:"slow",palette:[[150,90,90],[175,100,80],[200,100,70],[270,80,60],[120,70,40]]},
   {name:"Ocean",icon:"🌊",anim:"wheel",speed:"slow",palette:[[210,100,85],[195,90,95],[180,60,100],[230,100,55]]},
@@ -532,6 +716,9 @@ const PRESETS=[
   {name:"Sorbet",icon:"🍧",anim:"static",palette:[[15,38,100],[340,32,100],[50,32,100]]},
   {name:"Seafoam",icon:"🐚",anim:"static",palette:[[175,32,100],[190,22,100],[160,16,100]]},
   {name:"Honey",icon:"🍯",anim:"static",palette:[[40,48,100],[35,58,95],[45,32,100]]},
+  {name:"Focus",icon:"🧠",anim:"static",palette:[[40,6,100]]},
+  {name:"Pet Calm",icon:"🐾",anim:"fade",speed:"slow",bright:35,palette:[[210,45,70],[195,35,65],[50,30,70]]},
+  {name:"Night Feed",icon:"🍼",anim:"static",bright:8,palette:[[5,100,60],[0,100,50],[10,100,55]]},
 ];
 
 /* =================================================================
@@ -559,6 +746,11 @@ const ARROW={up:"↑",right:"→",down:"↓",left:"←"};
 const ZONE_NAME={"#00dc28":"green","#ff1414":"red","#1e46ff":"blue","#ffc800":"yellow"};   // Replicate status from the server (the Mac app does the capturing)
 let FAVS=[];                       // hearted scenes as "kind:name" keys (device/fx/mood/mine), kept by the server
 let favPop=null;                   // the heart just clicked, so it pops once
+let ROUT={active:false,kind:null},ROUT_AT=0;   // the running routine (sunrise/sleep/pomodoro/slideshow), from the server
+let SET={fade:8,lat:null,lon:null,pin:false};  // shared settings, from the server
+let HIST=[];                       // scenes played before, for Back (Z)
+let SCHED=null,schedDays=[0,1,2,3,4,5,6];
+const RM=matchMedia("(prefers-reduced-motion: reduce)");
 const HEART_SVG='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.6-4.7-9.4-9.3C1.3 7.6 3.3 4.2 6.9 4.2c2.1 0 3.7 1.2 5.1 3 1.4-1.8 3-3 5.1-3 3.6 0 5.6 3.4 4.3 6.8-1.8 4.6-9.4 9.3-9.4 9.3z"/></svg>';
 const curFx=()=>UI.fx?FX.find(f=>f.name===UI.fx.name)||{name:UI.fx.name,label:"Effect",icon:"✨",colors:["#7c5cff","#00d4ff"],desc:"Animated effect"}:null;
 let MSG={key:null,frames:[],i:0,timer:null};   // the message the wall is playing, animated on the stage
@@ -710,12 +902,13 @@ function displayName(){
   const m=D.state.colorMode,sel=curSel();
   if(m==="hs")return D.state.sat.value<8?"White":"Solid colour";
   if(m==="ct")return "White light";
+  if(UI.fx&&UI.fx.name==="pomodoro"&&ROUT.kind==="pomodoro")return "🍅 Pomodoro";
   const sc=curScene();
   if(sc)return sc.name;
   if(repActive())return curFx().icon+" "+curFx().label;
   if(simonActive())return "🎮 Simon";
   if(debugActive())return "🛠 Debug mode";
-  if(sel==="*Static*")return Object.keys(UI.panels||{}).length?"Your painting":"Still scene";
+  if(sel==="*Static*")return Object.keys(UI.panels||{}).length?(UI.sceneName||"Your painting"):"Still scene";
   if(sel==="*Dynamic*"&&UI.fx)return curFx().icon+" "+curFx().label;
   if(sel==="*Dynamic*")return UI.message&&UI.message.text?"“"+UI.message.text+"”":"Custom animation";
   return sel||"—";
@@ -794,7 +987,7 @@ function fail(status,d){
 const uiMeta=(sceneName,panels)=>({sceneName:sceneName||null,panels:panels||{}});
 function staticBody(map){
   const ps=lightPanels(),parts=[String(ps.length)];
-  ps.forEach(p=>{const[r,g,b]=hexRgb(map[p.panelId]||"#000000");parts.push(`${p.panelId} 1 ${r} ${g} ${b} 0 8`);});
+  ps.forEach(p=>{const[r,g,b]=hexRgb(map[p.panelId]||"#000000");parts.push(`${p.panelId} 1 ${r} ${g} ${b} 0 ${Math.max(1,SET.fade||8)}`);});
   return{command:"display",version:"2.0",animType:"static",animData:parts.join(" "),loop:false,palette:[]};
 }
 function animBody(sc){
@@ -839,6 +1032,7 @@ function playScene(sc,opts={}){          // sc: device scene name (string) or cu
   UI={sceneName:sc.name,panels:still?map:{}};paint={};render();
   send("effect","/api/effect",{write:still?staticBody(map):animBody(sc),_ui:uiMeta(sc.name,still?map:{})},
        {msg:sc.name+(still?" · still":"")});
+  if(sc.bright&&!opts.still)setBright(sc.bright,true);   // e.g. Night Feed is meant to be dim
 }
 function freezeNow(){
   const sc=curScene();
@@ -1033,6 +1227,7 @@ function stepMsg(){
   if(!MSG.frames.length||!msgActive())return;
   const[map,t]=MSG.frames[MSG.i];
   for(const id in map){const el=shapeEls[id];if(el){el.style.transition="fill .3s";el.setAttribute("fill",map[id]);}}
+  if(RM.matches)return;            // reduced motion: hold the first frame on the preview
   MSG.i=(MSG.i+1)%MSG.frames.length;
   MSG.timer=setTimeout(stepMsg,Math.max(100,t*100));
 }
@@ -1047,7 +1242,7 @@ function renderGlyphs(){
 /* =================================================================
    rendering
    ================================================================= */
-function render(){renderHeader();renderHero();renderSimon();renderTouch();renderStage();simArrows();renderScenes();renderColour();updatePaintTools();shimmer();renderMessage();syncMsgAnim();}
+function render(){renderHeader();renderHero();renderRoutine();renderSimon();renderTouch();renderStage();simArrows();renderScenes();renderColour();updatePaintTools();shimmer();renderMessage();syncMsgAnim();}
 function renderHeader(){
   $("#devsub").textContent=D?`${D.name} · ${lightPanels().length} panels · ${D.firmwareVersion}`:"—";
   $("#power").classList.toggle("on",isOn());$("#power").setAttribute("aria-checked",isOn());
@@ -1070,6 +1265,7 @@ function renderHero(){
     D.state.colorMode==="ct"?`${D.state.ct.value}K colour temperature`:
     sc?(sc.kind==="painted"?"Your saved painting":sc.kind==="message"?"Spelled out one character at a time":`${sc.anim==="static"?"Still":cap(sc.anim)+" · "+(sc.speed||"medium")} · ${sc.palette.length} colours`):
     repActive()?repNote():simonActive()?simNote():debugActive()?debugNote():
+    UI.fx&&UI.fx.name==="pomodoro"?(ROUT.phase==="break"?"Break time: stretch, then the next round starts by itself":"Focus: the panels go dark one by one as the time runs out"):
     curSel()==="*Static*"?"Held still on the panels":curSel()==="*Dynamic*"?(UI.fx?curFx().desc:UI.message?"Spelled out one character at a time":"Animated effect"):"Scene saved on the device";
   $("#playBtn").disabled=!D||!canPlay()||isAnimated();
   $("#freezeBtn").disabled=!D||!canFreeze();
@@ -1131,6 +1327,7 @@ function sceneCard(sc,{active,onDelete,fav}={}){
   const moving=sc.kind==="painted"?false:(sc.kind==="message"||sc.kind==="fx")?true:sc.anim?sc.anim!=="static":true;
   b.innerHTML=`<div class="strip"></div><div class="nm"><span>${sc.icon?sc.icon+" ":""}${esc(sc.name)}</span><em>${moving?"▶":"⏸"}</em></div>`;
   b.title=sc.kind==="message"?"Says “"+sc.text+"”":sc.kind==="fx"?sc.desc:(moving?"Animated":"Still")+" · "+cols.length+" colours";
+  b.setAttribute("aria-label",sc.name+(active?", playing now":""));
   if(fav){const on=isFav(fav),h=document.createElement("button");
     h.className="fav"+(on?" on":"")+(favPop&&sameKey(favPop,fav)?" pop":"");
     h.innerHTML=HEART_SVG;h.title=on?"Remove from favourites":"Add to favourites";
@@ -1148,7 +1345,7 @@ function sceneEntries(){
   if(D)D.effects.effectsList.forEach(n=>{const p=PALETTES[n]||{palette:[]};
     out.push({key:"device:"+n,sc:{name:n,palette:p.palette,anim:p.animType==="plugin"?"plugin":"static"},active:isDev&&n===sel,play:()=>playScene(n)});});
   FX.forEach(f=>out.push({key:"fx:"+f.name,sc:{name:f.label,icon:f.icon,kind:"fx",colors:f.colors,desc:f.desc},
-    active:!!(UI.fx&&UI.fx.name===f.name&&D&&(f.live?repActive():sel==="*Dynamic*")),play:()=>playFx(f),game:f.group==="game"}));
+    active:!!(UI.fx&&UI.fx.name===f.name&&D&&(f.live?repActive():sel==="*Dynamic*")),play:()=>playFx(f),game:f.group==="game",ambient:f.group==="ambient"}));
   PRESETS.forEach(p=>out.push({key:"mood:"+p.name,sc:p,active:!!(sc&&sc===p),play:()=>playScene(p)}));
   MINE.forEach(m=>out.push({key:"mine:"+m.name,sc:m,active:!!(sc&&sc.name===m.name),play:()=>playScene(m),onDelete:()=>deleteScene(m.name)}));
   return out;
@@ -1161,7 +1358,8 @@ function renderScenes(){
   const sig=JSON.stringify([all.map(e=>[e.key,e.active]),FAVS,MINE,Object.keys(PALETTES).length]);
   if(sig===scenesSig)return;scenesSig=sig;
   const fill=(id,items,withDelete)=>{const box=$(id);box.innerHTML="";
-    items.forEach(e=>{const card=sceneCard(e.sc,{active:e.active,fav:e.key,onDelete:withDelete?e.onDelete:null});card.onclick=e.play;box.appendChild(card);});
+    items.forEach(e=>{const card=sceneCard(e.sc,{active:e.active,fav:e.key,onDelete:withDelete?e.onDelete:null});
+      card.dataset.key=e.key;card.onclick=()=>{if(!suppressClick)playEntry(e);};box.appendChild(card);});
     return box;};
   const byKey=new Map(all.map(e=>[e.key.toLowerCase(),e]));
   const favs=FAVS.map(k=>byKey.get(k.toLowerCase())).filter(Boolean);
@@ -1170,7 +1368,8 @@ function renderScenes(){
   $("#favCount").textContent=favs.length?favs.length+" saved":"";
   fill("#devScenes",all.filter(e=>e.key.startsWith("device:")));
   if(D)$("#devCount").textContent=D.effects.effectsList.length+" saved";
-  fill("#fxScenes",all.filter(e=>e.key.startsWith("fx:")&&!e.game));
+  fill("#fxScenes",all.filter(e=>e.key.startsWith("fx:")&&!e.game&&!e.ambient));
+  fill("#ambientScenes",all.filter(e=>e.ambient));
   fill("#gameScenes",all.filter(e=>e.game));
   fill("#presetScenes",all.filter(e=>e.key.startsWith("mood:")));
   const mine=fill("#myScenes",all.filter(e=>e.key.startsWith("mine:")),true);
@@ -1189,7 +1388,7 @@ function renderColour(){
 // a gentle, local-only colour drift on the preview while the real scene is animating
 function shimmer(){
   clearInterval(shimmerTimer);shimmerTimer=null;
-  if(!isAnimated()||document.hidden)return;
+  if(!isAnimated()||document.hidden||RM.matches)return;
   if(shimmerOff.length!==LAYOUT.length)shimmerOff=LAYOUT.map(()=>Math.floor(Math.random()*7));
   shimmerTimer=setInterval(()=>{shimmerOff=shimmerOff.map(o=>o+(Math.random()<.35?1:0));renderStage();},1800);
 }
@@ -1263,11 +1462,14 @@ function applySnapshot(s){
   if(s.replicate)REP=s.replicate;
   if(s.simon)SIM=s.simon;
   if(s.debug)DBG=s.debug;
+  if(s.routine){ROUT=s.routine;ROUT_AT=Date.now()/1000-(s.routine.now||Date.now()/1000);}
+  if(s.settings)SET=s.settings;
   if(s.touch){if(touchSeen!==null&&s.touch.n!==touchSeen&&s.touch.dir)toast("Swipe "+ARROW[s.touch.dir]+" received","ok",1100);
     touchSeen=s.touch.n;TOUCH=s.touch;}
   const ph=$("#phoneHint");   // how to reach this page from a phone (desktop only)
   if(ph&&!window.NANO_WEB&&!window.NANO_IOS&&s.phoneUrl){
-    ph.style.display="";ph.innerHTML='📱 On your phone (same Wi-Fi), open <b>'+esc(s.phoneUrl)+'</b>, then <b>Share → Add to Home Screen</b> (iPhone) or <b>⋮ → Add to Home screen</b> (Android).';
+    ph.style.display="";ph.innerHTML='📱 On your phone (same Wi-Fi), open <b>'+esc(s.phoneUrl)+'</b> (or <button class="linkish" id="qrLink">scan a QR code</button>), then <b>Share → Add to Home Screen</b> (iPhone) or <b>⋮ → Add to Home screen</b> (Android).';
+    $("#qrLink").onclick=()=>openSettings("setPhone");
   }
   if(s.glyphsOk===false){   // letters are drawn on one particular wall's panel ids: no Message tab elsewhere
     $$('[data-tab=message]').forEach(b=>{b.style.display="none";});
@@ -1276,7 +1478,7 @@ function applySnapshot(s){
   setBanner();render();simSync();
 }
 async function getState(){
-  try{const s=await(await fetch("/api/state")).json();applySnapshot(s);}
+  try{const r=await fetch("/api/state");if(r.status===401){location.reload();return;}applySnapshot(await r.json());}
   catch(e){ONLINE=false;setBanner();}
 }
 function connect(){
@@ -1302,6 +1504,8 @@ async function boot(){
   try{FX=await(await fetch("/api/effects")).json();}catch(e){FX=[];}
   renderGlyphs();
   render();
+  if(tab==="routines")loadSched();
+  handleHash();
 }
 function buildSwatches(sel,input,on){
   const box=$(sel);box.innerHTML="";
@@ -1309,11 +1513,287 @@ function buildSwatches(sel,input,on){
     d.onclick=()=>{[...box.children].forEach(x=>x.classList.remove("active"));d.classList.add("active");on(c);};box.appendChild(d);});
 }
 function setTab(t,silent){
+  if(!$(`[data-pane="${t}"]`))return;
   tab=t;localStorage.setItem("nl.tab",t);
+  if(t==="routines"&&!silent)loadSched();
   $$("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
   $$(".pane").forEach(p=>p.classList.toggle("on",p.dataset.pane===t));
   if(!silent)renderStage();
 }
+
+
+/* =================================================================
+   history (Back), favourites stepping and reordering
+   ================================================================= */
+let suppressClick=false;
+function curEntryKey(){const a=sceneEntries().find(e=>e.active);return a?a.key:null;}
+function updateBack(){const b=$("#backBtn");if(b)b.disabled=!HIST.length;}
+function playEntry(e){
+  const cur=curEntryKey();
+  if(cur&&!sameKey(cur,e.key)){HIST.push(cur);if(HIST.length>30)HIST.shift();}
+  e.play();updateBack();
+}
+function goBack(){
+  while(HIST.length){
+    const k=HIST.pop(),e=sceneEntries().find(x=>sameKey(x.key,k));
+    if(e){e.play();break;}
+  }
+  if(!HIST.length&&!$("#backBtn").disabled)toast("That's as far back as it goes","ok",1200);
+  updateBack();
+}
+function favEntries(){
+  const all=sceneEntries(),byKey=new Map(all.map(e=>[e.key.toLowerCase(),e]));
+  const favs=FAVS.map(k=>byKey.get(k.toLowerCase())).filter(Boolean);
+  return favs.length?favs:all.filter(e=>!/^fx:(replicate|simon_play)$/.test(e.key));
+}
+function stepFav(step){   // previous/next favourite ([ ] keys, swipes on the phone's wall preview)
+  if(!D)return;
+  const list=favEntries();if(!list.length)return;
+  const i=list.findIndex(e=>e.active);
+  playEntry(list[i<0?(step>0?0:list.length-1):(i+step+list.length)%list.length]);
+}
+async function saveFavOrder(order){
+  const prev=FAVS;FAVS=order;renderScenes();
+  try{const r=await fetch("/api/favorites",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({order})});
+    if(!r.ok)throw new Error();FAVS=await r.json();renderScenes();toast("Favourites reordered","ok",1100);}
+  catch(e){FAVS=prev;renderScenes();toast("Couldn't save the new order","err");}
+}
+// Drag a favourite to move it: straight away with a mouse, after a long press on a touch screen.
+let fdrag=null;
+$("#favScenes").addEventListener("pointerdown",ev=>{
+  const card=ev.target.closest(".scene");
+  if(!card||ev.target.closest(".fav,.del")||ev.button>0||!card.dataset.key)return;
+  fdrag={x:ev.clientX,y:ev.clientY,id:ev.pointerId,card,lifted:false,t:null};
+  if(ev.pointerType!=="mouse")fdrag.t=setTimeout(()=>favLift(),380);
+});
+function favLift(){
+  if(!fdrag)return;fdrag.lifted=true;fdrag.card.classList.add("lifted");$("#favScenes").classList.add("sorting");
+  if(window.nanoHaptic)window.nanoHaptic("medium");else if(navigator.vibrate)navigator.vibrate(12);
+}
+window.addEventListener("pointermove",ev=>{
+  if(!fdrag||ev.pointerId!==fdrag.id)return;
+  if(!fdrag.lifted){
+    if(Math.hypot(ev.clientX-fdrag.x,ev.clientY-fdrag.y)<8)return;
+    if(fdrag.t){clearTimeout(fdrag.t);fdrag=null;return;}   // a touch that moves first is a scroll
+    favLift();
+  }
+  ev.preventDefault();
+  const over=document.elementFromPoint(ev.clientX,ev.clientY),tgt=over&&over.closest("#favScenes .scene");
+  if(tgt&&tgt!==fdrag.card){const box=$("#favScenes"),cards=[...box.children];
+    box.insertBefore(fdrag.card,cards.indexOf(fdrag.card)<cards.indexOf(tgt)?tgt.nextSibling:tgt);}
+});
+function favDrop(ev,save){
+  if(!fdrag||(ev&&ev.pointerId!==fdrag.id))return;
+  clearTimeout(fdrag.t);
+  if(fdrag.lifted){
+    fdrag.card.classList.remove("lifted");$("#favScenes").classList.remove("sorting");
+    suppressClick=true;setTimeout(()=>suppressClick=false,0);
+    const order=[...$("#favScenes").children].map(c=>c.dataset.key).filter(Boolean);
+    if(save&&JSON.stringify(order)!==JSON.stringify(FAVS))saveFavOrder(order);else{scenesSig="";renderScenes();}
+  }
+  fdrag=null;
+}
+window.addEventListener("pointerup",ev=>favDrop(ev,true));
+window.addEventListener("pointercancel",ev=>favDrop(ev,false));
+document.addEventListener("touchmove",e=>{if(fdrag&&fdrag.lifted)e.preventDefault();},{passive:false});
+// Swipe left/right across the wall preview (touch screens) = next/previous favourite.
+let sw=null;
+$("#stage").addEventListener("pointerdown",e=>{if(e.pointerType==="touch"&&tab!=="paint"&&!simonActive())sw={x:e.clientX,y:e.clientY,t:Date.now()};});
+$("#stage").addEventListener("pointerup",e=>{
+  if(!sw)return;const dx=e.clientX-sw.x,dy=e.clientY-sw.y,dt=Date.now()-sw.t;sw=null;
+  if(Math.abs(dx)>60&&Math.abs(dy)<45&&dt<700)stepFav(dx<0?1:-1);
+});
+$("#stage").addEventListener("pointercancel",()=>sw=null);
+
+/* =================================================================
+   routines (timers) and the schedule
+   ================================================================= */
+const RT_ICON={sunrise:"🌅",sleep:"😴",pomodoro:"🍅",slideshow:"🎞️"};
+let rtTimer=null;
+const mmss=s=>{s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return(h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0");};
+function renderRoutine(){
+  const box=$("#rtBox");clearTimeout(rtTimer);
+  box.hidden=!ROUT.active;if(!ROUT.active)return;
+  const now=Date.now()/1000-ROUT_AT,left=(ROUT.ends||now)-now;
+  let label=(RT_ICON[ROUT.kind]||"⏱")+" "+(ROUT.label||ROUT.kind),total=(ROUT.ends||now)-(ROUT.started||now),done;
+  if(ROUT.kind==="pomodoro"){label=ROUT.phase==="break"?"🍅 Break · round "+ROUT.round:"🍅 Focus · round "+ROUT.round;total=ROUT.phaseLength||total;}
+  if(ROUT.kind==="slideshow")label="🎞️ Slideshow · "+(ROUT.phase||"");
+  done=total>0?1-left/total:0;
+  $("#rtLabel").textContent=label;
+  $("#rtLeft").textContent=ROUT.ends?(ROUT.kind==="slideshow"?"next in ":ROUT.kind==="sleep"?"off in ":"")+mmss(left)+(ROUT.kind==="sunrise"?" to full daylight":ROUT.kind==="pomodoro"?" left":""):"";
+  $("#rtBar").style.width=Math.round(Math.max(0,Math.min(1,done))*100)+"%";
+  rtTimer=setTimeout(renderRoutine,1000);
+}
+async function startRoutine(kind){
+  const body={kind};
+  if(kind==="sunrise")body.minutes=+$("#rtSunMin").value;
+  if(kind==="sleep")body.minutes=+$("#rtSleepMin").value;
+  if(kind==="pomodoro"){const[w,b]=$("#rtPomoMin").value.split("/");body.minutes=+w;body.break=+b;}
+  if(kind==="slideshow"){body.minutes=+$("#rtShowMin").value;body.list=$("#rtShowList").value;}
+  try{const r=await fetch("/api/routine",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const d=await r.json();if(!r.ok)throw new Error(d.error||r.status);
+    ROUT=d;ROUT_AT=Date.now()/1000-(d.now||Date.now()/1000);renderRoutine();toast((RT_ICON[kind]||"")+" "+cap(kind)+" started","ok");}
+  catch(e){toast("Couldn't start it: "+e.message,"err");}
+}
+function stopRoutine(){fetch("/api/routine",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"stop"})})
+  .then(r=>r.json()).then(d=>{ROUT=d;renderRoutine();toast("Stopped","ok",1000);}).catch(()=>toast("Couldn't stop it","err"));}
+const DAYN=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+function actionLabel(a){
+  if(a.power)return a.power==="on"?"⏻ Switch on":"⏻ Switch off";
+  if(a.routine)return (RT_ICON[a.routine]||"")+" "+({sunrise:"Sunrise alarm",sleep:"Sleep timer",pomodoro:"Pomodoro",slideshow:"Slideshow"}[a.routine]||a.routine)+" ("+a.minutes+" min)";
+  if(a.key==="auto:season")return "🍂 Mood of the season";
+  const e=sceneEntries().find(x=>sameKey(x.key,a.key||""));
+  return e?(e.sc.icon?e.sc.icon+" ":"")+e.sc.name:(a.key||"?");
+}
+function actionOptions(){
+  const opt=(v,l)=>`<option value='${esc(JSON.stringify(v))}'>${esc(l)}</option>`;
+  const grp=(l,items)=>items.length?`<optgroup label="${esc(l)}">${items.join("")}</optgroup>`:"";
+  const all=sceneEntries().filter(e=>!/^fx:(replicate|simon_play)$/.test(e.key));
+  const ent=f=>all.filter(f).map(e=>opt({key:e.key},(e.sc.icon?e.sc.icon+" ":"")+e.sc.name));
+  const favs=favEntries().filter(e=>FAVS.some(k=>sameKey(k,e.key))).map(e=>opt({key:e.key},(e.sc.icon?e.sc.icon+" ":"")+e.sc.name));
+  return grp("Panels",[opt({power:"on"},"⏻ Switch on"),opt({power:"off"},"⏻ Switch off")])+
+    grp("Timers",[opt({routine:"sunrise",minutes:30},"🌅 Sunrise alarm (30 min)"),opt({routine:"sunrise",minutes:15},"🌅 Sunrise alarm (15 min)"),
+      opt({routine:"sleep",minutes:30},"😴 Sleep timer (30 min)"),opt({routine:"slideshow",minutes:10},"🎞️ Slideshow (every 10 min)")])+
+    grp("Automatic",[opt({key:"auto:season"},"🍂 Mood of the season")])+grp("Favourites",favs)+
+    grp("Moods",ent(e=>e.key.startsWith("mood:")))+grp("Ambient",ent(e=>e.ambient))+grp("Effects",ent(e=>e.key.startsWith("fx:")&&!e.ambient&&!e.game))+
+    grp("Arcade",ent(e=>e.game))+grp("On the panels",ent(e=>e.key.startsWith("device:")))+grp("My scenes",ent(e=>e.key.startsWith("mine:")));
+}
+function renderDays(){
+  $("#sDays").innerHTML=DAYN.map((d,i)=>`<button type="button" data-d="${i}" class="${schedDays.includes(i)?"on":""}" aria-pressed="${schedDays.includes(i)}">${d}</button>`).join("")+
+    `<button type="button" data-p="all">Every day</button><button type="button" data-p="wk">Weekdays</button><button type="button" data-p="we">Weekends</button>`;
+  $$("#sDays button").forEach(b=>b.onclick=()=>{
+    if(b.dataset.p)schedDays=b.dataset.p==="all"?[0,1,2,3,4,5,6]:b.dataset.p==="wk"?[0,1,2,3,4]:[5,6];
+    else{const d=+b.dataset.d;schedDays=schedDays.includes(d)?schedDays.filter(x=>x!==d):[...schedDays,d].sort();}
+    renderDays();});
+}
+function fmtNext(iso){
+  if(!iso)return "";const t=new Date(iso),now=new Date(),tm=t.toTimeString().slice(0,5);
+  const days=Math.round((new Date(t.toDateString())-new Date(now.toDateString()))/864e5);
+  return days===0?"today "+tm:days===1?"tomorrow "+tm:DAYN[(t.getDay()+6)%7]+" "+tm;
+}
+function renderSched(){
+  if(!SCHED)return;
+  const box=$("#schedList");box.innerHTML="";
+  if(!SCHED.items.length)box.innerHTML='<div class="empty">Nothing scheduled yet. Add a wake-up alarm, lights-off at bedtime, or a mood at sunset below.</div>';
+  SCHED.items.forEach(it=>{
+    const row=document.createElement("div");row.className="sched"+(it.on?"":" off");
+    const sunNeeded=(it.at==="sunrise"||it.at==="sunset")&&SCHED.lat==null;
+    row.innerHTML=`<div class="what"><b>${esc(actionLabel(it.action))}</b><span>${esc(it.desc)}${it.on?(it.next?" · next "+esc(fmtNext(it.next)):sunNeeded?" · needs your location":""):" · paused"}</span></div>
+      <label class="check"><input type="checkbox" ${it.on?"checked":""} aria-label="On"> On</label><button class="btn sm" aria-label="Delete">✕</button>`;
+    row.querySelector("input").onchange=e=>saveSched(Object.assign({},it,{on:e.target.checked}));
+    row.querySelector("button").onclick=async()=>{const r=await fetch("/api/schedule?id="+encodeURIComponent(it.id),{method:"DELETE"});SCHED=await r.json();renderSched();toast("Removed","ok",1000);};
+    box.appendChild(row);
+  });
+  $("#schedSun").innerHTML=SCHED.sunrise?`☀ ${SCHED.sunrise} · 🌙 ${SCHED.sunset} today`:"";
+  if(document.activeElement!==$("#sLat")&&document.activeElement!==$("#sLon")){$("#sLat").value=SCHED.lat??"";$("#sLon").value=SCHED.lon??"";}
+  const keep=$("#sAction").value;$("#sAction").innerHTML=actionOptions();if(keep)$("#sAction").value=keep;
+}
+async function loadSched(){
+  renderDays();
+  try{SCHED=await(await fetch("/api/schedule")).json();renderSched();}catch(e){}
+}
+async function saveSched(item){
+  const r=await fetch("/api/schedule",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({item})});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){toast(d.error||"Couldn't save that","err");return false;}
+  SCHED=d;renderSched();return true;
+}
+$("#sAt").onchange=()=>{const t=$("#sAt").value==="time";$("#sTime").hidden=!t;$("#sOffset").hidden=t;};
+$("#sAdd").onclick=async()=>{
+  const at=$("#sAt").value==="time"?$("#sTime").value:$("#sAt").value;
+  if(!at){toast("Pick a time","warn");return;}
+  if(!schedDays.length){toast("Pick at least one day","warn");return;}
+  if((at==="sunrise"||at==="sunset")&&SCHED&&SCHED.lat==null)toast("Add your location below so it knows when that is","warn",3500);
+  let action;try{action=JSON.parse($("#sAction").value);}catch(e){toast("Pick what should happen","warn");return;}
+  if(await saveSched({at,offset:+$("#sOffset").value||0,days:schedDays,action,on:true}))toast("Scheduled: "+actionLabel(action),"ok");
+};
+$("#sLocSave").onclick=async()=>{
+  const lat=$("#sLat").value.trim(),lon=$("#sLon").value.trim();
+  const r=await fetch("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({lat:lat||null,lon:lon||null})});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){toast(d.error||"That doesn't look like a location","err");return;}
+  toast(lat?"Location saved":"Location removed","ok");loadSched();
+};
+$$("[data-rt]").forEach(b=>b.onclick=()=>startRoutine(b.dataset.rt));
+$("#rtStop").onclick=stopRoutine;
+
+/* =================================================================
+   settings: theme, crossfade, phone QR, PIN, /run links
+   ================================================================= */
+function applyTheme(){
+  let t="auto";try{t=localStorage.getItem("nl.theme")||"auto";}catch(e){}
+  const light=t==="light"||(t==="auto"&&matchMedia("(prefers-color-scheme: light)").matches);
+  document.documentElement.dataset.theme=light?"light":"dark";
+  const m=document.querySelector('meta[name=theme-color]');if(m)m.content=light?"#f2f4f8":"#0a0c11";
+}
+matchMedia("(prefers-color-scheme: light)").addEventListener("change",applyTheme);
+function copyText(t){
+  if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(t).then(()=>toast("Link copied","ok",1000));
+  const a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();
+  try{document.execCommand("copy");toast("Link copied","ok",1000);}catch(e){toast("Copy it by hand: "+t,"warn",5000);}a.remove();
+}
+let SETX=null;
+async function openSettings(focus){
+  const dlg=$("#settings");
+  try{SETX=await(await fetch("/api/settings")).json();}catch(e){SETX=Object.assign({},SET,{local:false});}
+  let t="auto";try{t=localStorage.getItem("nl.theme")||"auto";}catch(e){}
+  $("#themeSel").value=t;
+  $("#fadeSel").value=SETX.fade||8;$("#fadeVal").textContent=((SETX.fade||8)/10).toFixed(1)+"s";
+  const url=SETX.phoneUrl;
+  $("#qrImg").hidden=!url;if(url)$("#qrImg").src="/api/qr.svg?text="+encodeURIComponent(url);
+  $("#qrText").innerHTML=url?`Point the phone's camera at the code (same Wi-Fi), or open <b>${esc(url)}</b>. Then <b>Share → Add to Home Screen</b> for an app icon.`:
+    "Phones can open this page while the NanoManager app is running (it shares the page on your Wi-Fi).";
+  $("#pinState").textContent=SETX.pin?"🔒 on":"off";
+  $("#pinRow").hidden=!SETX.local;$("#pinClear").hidden=!SETX.pin;$("#pinSet").textContent=SETX.pin?"Change PIN":"Set PIN";
+  $("#pinHint").textContent=SETX.local?(SETX.pin?"Phones have to type the PIN once; this computer never asks. Changing or removing it signs every phone out.":
+    "Anyone on your Wi-Fi can open the phone page. Set a PIN and phones have to type it once; this computer never asks."):
+    (SETX.pin?"This page is locked with a PIN. It can be changed on the computer running NanoManager.":"The PIN can be set on the computer running NanoManager.");
+  $("#newToken").hidden=!SETX.local;
+  renderLinks();
+  if(!dlg.open)dlg.showModal();
+  if(focus){const el=focus==="keys"?$(".keys"):document.getElementById(focus);if(el)el.scrollIntoView({block:"center"});}
+}
+function renderLinks(){
+  if(!SETX||!SETX.runToken)return;
+  const base=(SETX.phoneUrl||location.origin)+"/run/"+SETX.runToken;
+  const items=[["⏻ Switch on / off","?power=toggle"],["⏭ Next favourite","?next=1"],["😴 Sleep timer, 30 min","?routine=sleep&minutes=30"],["🌅 Sunrise alarm, 20 min","?routine=sunrise&minutes=20"]];
+  favEntries().filter(e=>FAVS.some(k=>sameKey(k,e.key))).forEach(e=>items.push([(e.sc.icon?e.sc.icon+" ":"")+e.sc.name,"?key="+encodeURIComponent(e.key)]));
+  if(items.length===4)items.push(["🛋️ Cozy (any scene works)","?key=mood%3ACozy"]);
+  $("#runLinks").innerHTML=items.map(([l,q],i)=>`<div class="lk"><span title="${esc(l)}">${esc(l)}</span><code>${esc(base+q)}</code><button type="button" class="btn sm" data-i="${i}">Copy</button></div>`).join("");
+  $$("#runLinks button").forEach(b=>b.onclick=()=>copyText(base+items[+b.dataset.i][1]));
+}
+$("#settingsBtn").onclick=()=>openSettings();
+$("#themeSel").onchange=e=>{try{localStorage.setItem("nl.theme",e.target.value);}catch(_){}applyTheme();};
+let fadeT=null;
+$("#fadeSel").oninput=e=>{$("#fadeVal").textContent=(e.target.value/10).toFixed(1)+"s";clearTimeout(fadeT);
+  fadeT=setTimeout(()=>fetch("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({fade:+e.target.value})})
+    .then(r=>r.json()).then(d=>{SET.fade=d.fade;}).catch(()=>toast("Couldn't save","err")),300);};
+async function pinCall(body,msg){
+  const r=await fetch("/api/pin",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){toast(d.error||"Couldn't change the PIN","err");return;}
+  toast(msg,"ok");$("#pinNew").value="";openSettings();
+}
+$("#pinSet").onclick=()=>{const v=$("#pinNew").value.trim();if(!/^\d{4,12}$/.test(v)){toast("Use 4 to 12 digits","warn");$("#pinNew").focus();return;}pinCall({set:v},"🔒 PIN set: phones will ask for it");};
+$("#pinClear").onclick=()=>pinCall({clear:true},"PIN removed");
+$("#newToken").onclick=async()=>{const r=await fetch("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({newRunToken:true})});
+  if(r.ok){SETX=Object.assign(SETX,await r.json());renderLinks();toast("New links made; the old ones no longer work","ok",2500);}};
+
+/* =================================================================
+   deep links: http://<computer>:8765/#play=mood:Cozy  ·  #tab=routines  ·  #settings
+   ================================================================= */
+function handleHash(){
+  if(!location.hash||location.hash.length<2)return;
+  const h=new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null,"",location.pathname+location.search);
+  if(h.get("tab"))setTab(h.get("tab"));
+  if(h.has("settings"))openSettings();
+  const k=h.get("play");
+  if(k&&D){const all=sceneEntries(),e=all.find(x=>sameKey(x.key,k))||all.find(x=>x.sc.name.toLowerCase()===k.toLowerCase());
+    if(e)playEntry(e);else toast("No scene called “"+k+"”","warn",3000);}
+}
+window.addEventListener("hashchange",handleHash);
+$("#backBtn").onclick=goBack;
 
 /* =================================================================
    wiring
@@ -1357,11 +1837,21 @@ $("#mText").onkeydown=e=>{if(e.key==="Enter")$("#mPlay").click();};
 document.querySelectorAll("input[type=range]").forEach(el=>el.addEventListener("wheel",e=>e.preventDefault(),{passive:false}));
 document.addEventListener("visibilitychange",()=>{shimmer();if(!document.hidden)getState();});
 document.addEventListener("keydown",e=>{
-  if(e.target.matches("input,select,textarea"))return;
+  if((e.target.matches&&e.target.matches("input,select,textarea"))||e.metaKey||e.ctrlKey||e.altKey)return;
+  if($("#settings").open)return;
   if(e.key===" "){e.preventDefault();togglePower();}
   if(e.key==="ArrowUp"){e.preventDefault();setBright((+br.value)+5);}
   if(e.key==="ArrowDown"){e.preventDefault();setBright((+br.value)-5);}
-  if(e.key==="1")setTab("scenes");if(e.key==="2")setTab("custom");if(e.key==="3")setTab("colour");if(e.key==="4")setTab("paint");if(e.key==="5")setTab("message");
+  const tabs={"1":"scenes","2":"custom","3":"colour","4":"paint","5":"message","6":"routines"};
+  if(tabs[e.key])setTab(tabs[e.key]);
+  if(e.key==="]")stepFav(1);
+  if(e.key==="[")stepFav(-1);
+  if(e.key==="z"||e.key==="Z")goBack();
+  if(e.key==="f"||e.key==="F"){const a=sceneEntries().find(x=>x.active);if(a)toggleFav(a.key,a.sc.name);else toast("Nothing to favourite: pick a scene first","warn");}
+  if(e.key==="p"||e.key==="P"){if(!$("#playBtn").disabled)playNow();}
+  if(e.key==="s"||e.key==="S"){if(!$("#freezeBtn").disabled)freezeNow();}
+  if(e.key===",")openSettings();
+  if(e.key==="?")openSettings("keys");
 });
 boot();
 </script>

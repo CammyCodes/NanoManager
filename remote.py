@@ -80,12 +80,12 @@ def spread(st, cols):
     return {pid: cols[i % len(cols)] for i, pid in enumerate(ids)}
 
 
-def static_body(st, rgb_map):
-    """The page's staticBody."""
+def static_body(st, rgb_map, fade=8):
+    """The page's staticBody (fade: tenths of a second to cross-fade to it)."""
     parts = [str(len(light_ids(st)))]
     for pid in light_ids(st):
         r, g, b = rgb_map.get(pid) or rgb_map.get(str(pid)) or (0, 0, 0)
-        parts.append(f"{pid} 1 {r} {g} {b} 0 8")
+        parts.append(f"{pid} 1 {r} {g} {b} 0 {max(1, int(fade))}")
     return {"command": "display", "version": "2.0", "animType": "static", "animData": " ".join(parts),
             "loop": False, "palette": []}
 
@@ -149,8 +149,9 @@ def _message_opts(sc):
     return {k: sc.get(k) for k in ("color", "heart", "bg", "hold", "gap") if sc.get(k) is not None}
 
 
-def play(e, st, speed):
-    """How the page would play entry e: (device path, body, _ui fields)."""
+def play(e, st, speed, fade=8):
+    """How the page would play entry e: (device path, body, _ui fields). fade: still scenes'
+    cross-fade in tenths (the page's Crossfade setting)."""
     ui = {"sceneName": None, "panels": {}, "message": None, "fx": None}
     kind, sc = e["kind"], e.get("scene") or {}
     if kind == "device":
@@ -167,12 +168,12 @@ def play(e, st, speed):
     if sc.get("kind") == "painted":
         panels = sc.get("panels") or {}
         ui.update(sceneName=sc["name"], panels=panels)
-        return "/effects", {"write": static_body(st, {int(k): hex_rgb(v) for k, v in panels.items()})}, ui
+        return "/effects", {"write": static_body(st, {int(k): hex_rgb(v) for k, v in panels.items()}, fade)}, ui
     cols = [show_hsb(*c) for c in sc.get("palette") or [[0, 0, 100]]]
     if sc.get("anim", "static") == "static":
         m = spread(st, cols)
         ui.update(sceneName=sc["name"], panels={str(k): hexs(v) for k, v in m.items()})
-        return "/effects", {"write": static_body(st, m)}, ui
+        return "/effects", {"write": static_body(st, m, fade)}, ui
     ui.update(sceneName=sc["name"])
     return "/effects", {"write": anim_body(sc, speed)}, ui
 

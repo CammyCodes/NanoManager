@@ -118,13 +118,13 @@ The TV app has the moods and the panels' own scenes. The animated effects and me
 No app to install: the Mac and Windows apps serve a phone-friendly page, with big touch controls where you can even paint the panels by dragging your finger.
 
 1. Make sure the computer running NanoManager is **on and NanoManager is open** (on Windows, start **NanoManager (phone access)**).
-2. On the computer's NanoManager window, find the line under the wall that says *"On your phone (same Wi-Fi), open http://192.168.x.x:8765"*. (On a Mac the address `http://<your-Mac's-name>.local:8765` works too.)
+2. On the computer's NanoManager window, find the line under the wall that says *"On your phone (same Wi-Fi), open http://192.168.x.x:8765"*, or open **⚙ Settings** there and point your phone's camera at the QR code. (On a Mac the address `http://<your-Mac's-name>.local:8765` works too.)
 3. Open that address on your phone's browser, then:
    - **iPhone (Safari):** Share → **Add to Home Screen** → Add.
    - **Android (Chrome):** ⋮ → **Add to Home screen** (or **Install app**).
 
 You get a NanoManager icon that opens full screen. Your favourites and saved scenes are the same ones the computer uses.
-Anyone on your Wi-Fi who knows the address can use this page, so only run it on a network you trust.
+Anyone on your Wi-Fi who knows the address can use this page. To stop that, set a **PIN** in **⚙ Settings** on the computer: phones then type it once, and the computer itself never asks.
 
 ---
 
@@ -190,16 +190,21 @@ STEPS
 | | Mac | Windows | TV | Phone |
 |---|:-:|:-:|:-:|:-:|
 | Power, brightness, warm-to-cool white, any colour | ✅ | ✅ | ✅ | ✅ |
-| 27 designed **moods** (Aurora, Cozy, Candlelight, Synthwave, Cherry Blossom, ...) | ✅ | ✅ | ✅ | ✅ |
+| 30 designed **moods** (Aurora, Cozy, Candlelight, Synthwave, Cherry Blossom, Night Feed, ...) | ✅ | ✅ | ✅ | ✅ |
 | The panels' own scenes, played or frozen | ✅ | ✅ | ✅ | ✅ |
 | Favourites (♡ on any card) | ✅ | ✅ | ✅ | ✅ |
 | Animated **effects** (Snake, Starlight, Fairy Dust, Ripple, Rain, Wave) | ✅ | ✅ | ➖ | ✅ |
-| **Arcade** games the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles) | ✅ | ✅ | ➖ | ✅ |
+| **Ambient** looks (Fireplace, Storm, Ocean Waves, Northern Lights, Lava Lamp, Night Sky, Breathe 4-7-8, Moon Phase, Colour of the Day, Holiday Countdown) | ✅ | ✅ | ➖ | ✅ |
+| **Arcade** games the wall plays by itself (Pac-Man, Tetris, Pong, Simon, Light Cycles, Game of Life, Breakout, Space Invaders, Flappy, Noughts & Crosses, Lights Out, Maze, Dice, Coin Toss) | ✅ | ✅ | ➖ | ✅ |
 | 🎮 **Play Simon**: swipe on the panels to play, with your score and high score in the app | ✅ | ✅ | ❌ | ✅ |
 | 🛠 **Debug mode**: swipe down-up-down on the wall, then left/right through your favourites | ✅ | ✅ | ❌ | ✅ |
 | **Paint** panels one by one, make and save your own scenes | ✅ | ✅ | ➖ | ✅ |
 | **Replicate**: the wall copies your Mac's screen | ✅ | ❌ | ❌ | ➖ start it from the phone |
 | Spell short messages like "I ❤ YOU" (only on the wall it was drawn for) | ✅ | ✅ | ➖ | ✅ |
+| ⏱ **Timers**: sunrise alarm, sleep timer, Pomodoro, slideshow of your favourites | ✅ | ✅ | ❌ | ✅ |
+| 📅 **Schedule**: scenes, on/off and timers at a time or at sunrise/sunset, on the days you pick | ✅ | ✅ | ❌ | ✅ |
+| 🔗 **Links** for Shortcuts / Siri, NFC tags and Home Screen bookmarks | ✅ | ✅ | ❌ | ✅ |
+| 🔒 **PIN lock** for phones, QR code to open the phone page, light/dark theme, keyboard shortcuts | ✅ | ✅ | ❌ | ✅ |
 | Command line (`nl.py`) and a local HTTP API for your own scripts | ✅ | ✅ | ❌ | ❌ |
 
 ➖ = not in that app (or only with a build for your own wall). Full details are in the **[user guide](docs/GUIDE.md)**.
@@ -220,7 +225,7 @@ pauses for 20 s if the panels stop answering. If you write your own scripts, sen
 ### Privacy
 
 Everything is local. NanoManager never contacts Nanoleaf's cloud and sends nothing anywhere. Your pairing token lives only in a file on your own device
-(see where above). The phone page has no password, so only enable phone access on a network you trust.
+(see where above). The phone page has no password unless you set a PIN in ⚙ Settings, so only enable phone access on a network you trust.
 
 ## Troubleshooting
 
@@ -234,6 +239,8 @@ Everything is local. NanoManager never contacts Nanoleaf's cloud and sends nothi
 | Mac: window says the server didn't start | Install the Command Line Tools (`xcode-select --install`), then reopen. Details are in `~/Library/Application Support/NanoManager/server.log`. |
 | Windows: SmartScreen warning | **More info → Run anyway.** |
 | Windows: the phone can't open the address | Start **NanoManager (phone access)** and allow it through the firewall on **Private networks**. |
+| A schedule or alarm didn't happen | The computer running NanoManager does the schedule, so it has to be awake with NanoManager open at that time (the Mac app keeps the Mac from idling to sleep while it's open, but not a closed lid). Sunrise/sunset times need your location under **Timers → Schedule**. |
+| A phone asks for a PIN | Someone set one in **⚙ Settings** on the computer. Type it, or remove it there. |
 | TV app won't install | Turn on *Install unknown apps* for **Downloader** (or ADB debugging for the adb route). |
 | TV app says *Offline* | Press the **⟳ Connection** button and choose **Search again**. |
 | Tapping the panels does nothing in Play Simon | The panels only report **swipes** to apps like this one (never taps or which panel), so swipe instead. See [Play Simon](docs/GUIDE.md#-play-simon-a-real-game-played-by-swiping-on-the-panels). |
